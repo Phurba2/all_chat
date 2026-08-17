@@ -1,0 +1,41 @@
+from datetime import timedelta
+
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+
+from inbox.models import Message
+
+SAMPLE = [
+    ("whatsapp", "Priya Sharma", "Hey! Is the blue hoodie in size M still available?"),
+    ("whatsapp", "Priya Sharma", "Great, I'll take it. Can you ship to Mumbai?"),
+    ("instagram", "@arjun.k", "Loved your latest post! Do you do custom orders?"),
+    ("messenger", "Tom Baker", "What time does the store close on Sundays?"),
+    ("email", "sarah@example.com", "Hi, I'd like a refund for order #4821. Thanks!"),
+    ("email", "sarah@example.com", "Invoice attached below for reference."),
+    ("webchat", "Guest 1042", "Hi, your website chat widget is working :)" ),
+    ("webchat", "Guest 1042", "Can I book a demo for next week?"),
+]
+
+
+class Command(BaseCommand):
+    help = "Seed the inbox with sample conversations"
+
+    def handle(self, *args, **options):
+        if Message.objects.exists():
+            self.stdout.write("Messages already exist — skipping (delete db.sqlite3 to reseed).")
+            return
+        now = timezone.now()
+        for i, (channel, contact, text) in enumerate(SAMPLE):
+            Message.objects.create(
+                channel=channel,
+                contact=contact,
+                text=text,
+                created_at=now - timedelta(hours=len(SAMPLE) - i),
+                is_read=(i % 3 != 0),
+            )
+        # a couple of outgoing replies so threads feel real
+        Message.objects.create(channel="whatsapp", contact="Priya Sharma", direction="out",
+                               text="Yes, size M is in stock — ₹1,499 shipped free to Mumbai. Confirm?", is_read=True)
+        Message.objects.create(channel="webchat", contact="Guest 1042", direction="out",
+                               text="Sure! How about Tuesday 3 PM?", is_read=True)
+        self.stdout.write(self.style.SUCCESS(f"Seeded {Message.objects.count()} messages."))

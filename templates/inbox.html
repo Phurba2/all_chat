@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+{% if conversations %}
+  {% for c in conversations %}
+  <a class="row" href="{% url 'conversation' c.channel c.contact %}">
+    <span class="badge">{{ c.channel_name }}</span>
+    <span style="min-width:0">
+      <div class="name">{{ c.contact }}</div>
+      <div class="prev">{{ c.last.text|truncatechars:60 }}</div>
+    </span>
+    {% if c.unread %}<span class="unread">{{ c.unread }}</span>{% endif %}
+    <span class="time">{{ c.last.created_at|date:"M j, H:i" }}</span>
+  </a>
+  {% endfor %}
+{% else %}
+  <div class="empty">No messages yet. Run <code>python manage.py seed</code> to add sample conversations.</div>
+{% endif %}
+{% endblock %}

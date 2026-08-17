@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ contact }} · Inbox{% endblock %}
+{% block content %}
+<a class="back" href="{% url 'inbox' %}">&larr; Inbox</a>
+<h2 style="font-size:16px; margin-bottom:16px">{{ contact }} <span class="badge">{{ channel|capfirst }}</span></h2>
+<div class="thread">
+  {% for m in thread %}
+  <div class="msg {{ m.direction }}">
+    {{ m.text|linebreaksbr }}
+    <small>{{ m.created_at|date:"M j, H:i" }}</small>
+  </div>
+  {% endfor %}
+</div>
+<form class="reply" method="post" action="">
+  {% csrf_token %}
+  <input type="text" name="text" placeholder="Reply…" autofocus required>
+  <button type="submit">Send</button>
+</form>
+{% endblock %}
