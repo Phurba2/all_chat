@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
+<nav style="display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap">
+  <a href="{% url 'inbox' %}" class="tab {% if not current %}active{% endif %}">All</a>
+  {% for key, label in channels %}
+  <a href="{% url 'channel' key %}" class="tab {% if current == key %}active{% endif %}">{{ label }}</a>
+  {% endfor %}
+</nav>
 {% if conversations %}
   {% for c in conversations %}
   <a class="row" href="{% url 'conversation' c.channel c.contact %}">

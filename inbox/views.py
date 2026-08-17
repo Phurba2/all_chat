@@ -5,19 +5,22 @@ from .gmail import is_configured, send_reply
 from .models import Message
 
 
-def inbox(request):
-    """Group all messages by (channel, contact) into conversations."""
+def inbox(request, channel=None):
+    """Group all messages by (channel, contact) into conversations, optionally filtered by channel."""
     names = dict(Message.CHANNELS)
+    qs = Message.objects.all()
+    if channel:
+        qs = qs.filter(channel=channel)
     conversations = {}
-    for m in Message.objects.all():
+    for m in qs:
         key = (m.channel, m.contact)
-        conv = conversations.setdefault(key, {"channel": m.channel, "channel_name": names[m.channel], "contact": m.contact, "unread": 0, "last": m})
+        conv = conversations.setdefault(key, {"channel": m.channel, "channel_name": names.get(m.channel, m.channel), "contact": m.contact, "unread": 0, "last": m})
         if not m.is_read and m.direction == "in":
             conv["unread"] += 1
         if m.created_at >= conv["last"].created_at:
             conv["last"] = m
     order = sorted(conversations.values(), key=lambda c: c["last"].created_at, reverse=True)
-    return render(request, "inbox.html", {"conversations": order})
+    return render(request, "inbox.html", {"conversations": order, "current": channel, "channels": Message.CHANNELS})
 
 
 def conversation(request, channel, contact):
@@ -35,4 +38,4 @@ def conversation(request, channel, contact):
             Message.objects.create(channel=channel, contact=contact, direction="out", text=text, is_read=True)
             return redirect("conversation", channel=channel, contact=contact)
     thread.filter(direction="in", is_read=False).update(is_read=True)  # mark read on open
-    return render(request, "conversation.html", {"thread": thread, "channel": channel, "contact": contact})
+    return render(request, "conversation.html", {"thread": thread, "channel": channel, "channel_name": dict(Message.CHANNELS).get(channel, channel), "contact": contact})

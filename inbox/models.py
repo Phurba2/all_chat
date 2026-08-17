@@ -4,10 +4,9 @@ from django.db import models
 class Message(models.Model):
     CHANNELS = [
         ("whatsapp", "WhatsApp"),
-        ("instagram", "Instagram"),
-        ("messenger", "Facebook Messenger"),
-        ("email", "Email"),
-        ("webchat", "Website Chat"),
+        ("messenger", "Messenger"),
+        ("email", "Gmail"),
+        ("tiktok", "TikTok"),
     ]
     channel = models.CharField(max_length=20, choices=CHANNELS)
     contact = models.CharField(max_length=100)  # name or address of the other party

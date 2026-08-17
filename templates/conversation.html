@@ -2,7 +2,7 @@
 {% block title %}{{ contact }} · Inbox{% endblock %}
 {% block content %}
 <a class="back" href="{% url 'inbox' %}">&larr; Inbox</a>
-<h2 style="font-size:16px; margin-bottom:16px">{{ contact }} <span class="badge">{{ channel|capfirst }}</span></h2>
+<h2 style="font-size:16px; margin-bottom:16px">{{ contact }} <span class="badge">{{ channel_name }}</span></h2>
 <div class="thread">
   {% for m in thread %}
   <div class="msg {{ m.direction }}">
