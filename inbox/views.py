@@ -1,6 +1,7 @@
 from django.http import Http404
 from django.shortcuts import redirect, render
 
+from .gmail import is_configured, send_reply
 from .models import Message
 
 
@@ -26,6 +27,11 @@ def conversation(request, channel, contact):
     if request.method == "POST":
         text = request.POST.get("text", "").strip()
         if text:
+            if channel == "email" and is_configured():
+                try:
+                    send_reply(contact, text, in_reply_to=thread.last().message_id)
+                except Exception:
+                    pass  # SMTP failed — the reply is still stored locally below
             Message.objects.create(channel=channel, contact=contact, direction="out", text=text, is_read=True)
             return redirect("conversation", channel=channel, contact=contact)
     thread.filter(direction="in", is_read=False).update(is_read=True)  # mark read on open

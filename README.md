@@ -24,6 +24,18 @@ Open http://127.0.0.1:8000 — you'll see the unified inbox. Click any conversat
 | `templates/` | `base.html`, `inbox.html`, `conversation.html` (minimalist, inline CSS) |
 | `admin/` | Manage messages via Django admin |
 
+## Gmail integration
+
+Emails are pulled in over IMAP and replies are sent over SMTP — no extra dependencies, just environment variables:
+
+```bash
+export GMAIL_EMAIL=you@gmail.com
+export GMAIL_APP_PASSWORD=your-app-password   # https://myaccount.google.com/apppasswords
+.venv/bin/python manage.py fetch_gmail        # idempotent: already-seen emails are skipped
+```
+
+Replies typed in an email thread are sent for real via SMTP (threaded with `In-Reply-To`). If credentials aren't configured or SMTP fails, the reply is still stored locally so nothing is lost. Run `fetch_gmail` on a schedule (cron / Celery beat) later to keep the inbox live.
+
 ## Adding a new channel later
 
 Add the channel name to `Message.CHANNELS` in `inbox/models.py`, then write a small receiver (e.g. a webhook view or email parser) that creates `Message` objects — the inbox picks them up automatically.

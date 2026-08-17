@@ -6,6 +6,7 @@
 <div class="thread">
   {% for m in thread %}
   <div class="msg {{ m.direction }}">
+    {% if m.subject %}<strong>{{ m.subject }}</strong><br>{% endif %}
     {{ m.text|linebreaksbr }}
     <small>{{ m.created_at|date:"M j, H:i" }}</small>
   </div>
