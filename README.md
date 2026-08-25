@@ -8,7 +8,6 @@ A minimal Django app that pulls messages from WhatsApp, Messenger, Gmail, and Ti
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python manage.py migrate
-.venv/bin/python manage.py seed          # optional sample conversations
 .venv/bin/python manage.py runserver
 ```
 
