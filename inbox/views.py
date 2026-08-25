@@ -1,12 +1,9 @@
 from django.http import Http404
 from django.shortcuts import redirect, render
-
-from .gmail import is_configured, send_reply
+from .gmail import is_configured
 from .models import Message
 
-
 def inbox(request, channel=None):
-    """Group all messages by (channel, contact) into conversations, optionally filtered by channel."""
     names = dict(Message.CHANNELS)
     qs = Message.objects.all()
     if channel:
