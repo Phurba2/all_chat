@@ -1,6 +1,5 @@
 from django.db import models
 
-
 class Message(models.Model):
     CHANNELS = [
         ("whatsapp", "WhatsApp"),

@@ -1,24 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
-<nav style="display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap">
-  <a href="{% url 'inbox' %}" class="tab {% if not current %}active{% endif %}">All</a>
+
+<nav style="display: flex; gap: 12px; margin-bottom: 16px; justify-content: center;">
   {% for key, label in channels %}
-  <a href="{% url 'channel' key %}" class="tab {% if current == key %}active{% endif %}">{{ label }}</a>
+    <a href="{% url 'channel' key %}" >{{ label }}</a>
   {% endfor %}
 </nav>
+
 {% if conversations %}
+
   {% for c in conversations %}
-  <a class="row" href="{% url 'conversation' c.channel c.contact %}">
-    <span class="badge">{{ c.channel_name }}</span>
-    <span style="min-width:0">
-      <div class="name">{{ c.contact }}</div>
-      <div class="prev">{{ c.last.text|truncatechars:60 }}</div>
-    </span>
-    {% if c.unread %}<span class="unread">{{ c.unread }}</span>{% endif %}
-    <span class="time">{{ c.last.created_at|date:"M j, H:i" }}</span>
-  </a>
+    <a class="row" href="{% url 'conversation' c.channel c.contact %}">
+      <span style="min-width:0">
+        <div class="name">{{ c.contact }}</div>
+      </span>
+    </a>
   {% endfor %}
+
 {% else %}
-  <div class="empty">No messages yet. Run <code>python manage.py seed</code> to add sample conversations.</div>
+  <div>Empty</div>
 {% endif %}
+
 {% endblock %}

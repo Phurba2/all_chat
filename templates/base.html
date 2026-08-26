@@ -1,224 +1,59 @@
-<!doctype html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Inbox{% endblock %}</title>
-  <style>
-    /* Reset */
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+
+body {
+font: 15px/1.5 sans-serif;
+background: #1c1c1e;
+color: #f2f2f2;
+margin: 0;
+    }
+main {
+max-width: 680px;
+margin: 0 auto;
+padding: 20px 16px;
     }
 
-    body {
-      font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: #f7f7f8;
-      color: #1c1c1e;
+/* Conversation list row */
+.row {
+display: block;
+padding: 12px 14px;
+background: #2c2c2e;
+border: 1px solid #3a3a3c;
+border-radius: 8px;
+margin-bottom: 8px;
+text-decoration: none;
+color: inherit;
     }
 
-    /* Header */
-    header {
-      background: #fff;
-      border-bottom: 1px solid #e4e4e7;
-      padding: 14px 24px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
+.row .name {
+font-weight: 600;
     }
 
-    header h1 {
-      font-size: 17px;
-      font-weight: 600;
-    }
+/* Message bubbles in a thread */
+.msg {
+background: #2c2c2e;
+border-radius: 10px;
+padding: 8px 12px;
+max-width: 75%;
+margin-bottom: 10px;
+}
 
-    header a {
-      color: inherit;
-      text-decoration: none;
-    }
+a {
+    color: #58a6ff;
+    text-decoration: none;
+}
 
-    main {
-      max-width: 680px;
-      margin: 0 auto;
-      padding: 24px 16px 80px;
-    }
+a:hover {
+    text-decoration: underline;
+}
 
-    /* Badges / tabs */
-    .badge {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      padding: 2px 8px;
-      border-radius: 99px;
-      background: #eee;
-      color: #555;
-    }
-
-    .tab {
-      padding: 6px 14px;
-      border-radius: 99px;
-      border: 1px solid #d4d4d8;
-      color: #52525b;
-      text-decoration: none;
-      font-size: 13px;
-    }
-
-    .tab:hover {
-      border-color: #2563eb;
-      color: #2563eb;
-    }
-
-    .tab.active {
-      background: #2563eb;
-      border-color: #2563eb;
-      color: #fff;
-    }
-
-    /* Conversation list row */
-    .row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 14px 16px;
-      background: #fff;
-      border-bottom: 1px solid #eee;
-      text-decoration: none;
-      color: inherit;
-    }
-
-    .row:hover {
-      background: #fafafa;
-    }
-
-    .row .name {
-      font-weight: 600;
-    }
-
-    .row .prev {
-      color: #71717a;
-      font-size: 14px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .row .time {
-      margin-left: auto;
-      color: #a1a1aa;
-      font-size: 12px;
-      white-space: nowrap;
-    }
-
-    .unread {
-      background: #2563eb;
-      color: #fff;
-      border-radius: 99px;
-      font-size: 11px;
-      padding: 1px 7px;
-      font-weight: 600;
-    }
-
-    /* Thread view */
-    .thread {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .back {
-      display: inline-block;
-      margin-bottom: 14px;
-      color: #2563eb;
-      text-decoration: none;
-      font-size: 14px;
-    }
-
-    .msg {
-      background: #fff;
-      border-radius: 12px;
-      padding: 10px 14px;
-      max-width: 75%;
-      margin-bottom: 10px;
-    }
-
-    .msg.in {
-      align-self: flex-start;
-      border-bottom-left-radius: 4px;
-    }
-
-    .msg.out {
-      align-self: flex-end;
-      background: #2563eb;
-      color: #fff;
-      border-bottom-right-radius: 4px;
-    }
-
-    .msg small {
-      display: block;
-      color: #a1a1aa;
-      font-size: 11px;
-      margin-top: 4px;
-    }
-
-    .msg.out small {
-      color: #dbeafe;
-    }
-
-    /* Reply form */
-    form.reply {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: #fff;
-      border-top: 1px solid #e4e4e7;
-      padding: 12px 16px;
-      display: flex;
-      gap: 10px;
-      max-width: 680px;
-      margin: 0 auto;
-    }
-
-    input[type=text] {
-      flex: 1;
-      padding: 10px 14px;
-      border: 1px solid #d4d4d8;
-      border-radius: 99px;
-      font: inherit;
-      outline: none;
-    }
-
-    input[type=text]:focus {
-      border-color: #2563eb;
-    }
-
-    button {
-      background: #2563eb;
-      color: #fff;
-      border: 0;
-      border-radius: 99px;
-      padding: 10px 20px;
-      font: inherit;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background: #1d4ed8;
-    }
-
-    .empty {
-      text-align: center;
-      color: #71717a;
-      padding: 60px 0;
-    }
-  </style>
+</style>
 </head>
 <body>
-  <header>
-    <h1><a href="{% url 'inbox' %}">Inbox</a></h1>
-  </header>
-  <main>
+<main>
     {% block content %}{% endblock %}
-  </main>
+</main>
 </body>
 </html>

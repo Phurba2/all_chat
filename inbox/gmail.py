@@ -72,23 +72,3 @@ def fetch_emails():
         return new
     finally:
         mail.logout()
-
-
-def send_reply(to_address, text, in_reply_to=""):
-    if not is_configured():
-        raise RuntimeError("Set GMAIL_EMAIL and GMAIL_APP_PASSWORD environment variables first.")
-
-    last = Message.objects.filter(channel="email", contact=to_address, direction="in").last()
-
-    msg = EmailMessage()
-    msg["From"] = os.environ["GMAIL_EMAIL"]
-    msg["To"] = to_address
-    msg["Subject"] = "Re: " + (last.subject if last and last.subject else "your message")
-    if in_reply_to:
-        msg["In-Reply-To"] = in_reply_to
-        msg["References"] = in_reply_to
-    msg.set_content(text)
-
-    with smtplib.SMTP_SSL(SMTP_HOST, 465) as s:
-        s.login(os.environ["GMAIL_EMAIL"], os.environ["GMAIL_APP_PASSWORD"])
-        s.send_message(msg)
