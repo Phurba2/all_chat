@@ -8,12 +8,12 @@ class Message(models.Model):
         ("email", "Gmail"),
         ("tiktok", "TikTok"),
     ]
-    channel = models.CharField(max_length=20, choices=CHANNELS)
-    contact = models.CharField(max_length=100)  # name or address of the other party
+    channel = models.CharField(choices=CHANNELS)
+    contact = models.CharField()
     direction = models.CharField(max_length=3, choices=[("in", "Incoming"), ("out", "Outgoing")], default="in")
     text = models.TextField()
-    subject = models.CharField(max_length=255, blank=True, default="")
-    message_id = models.CharField(max_length=255, blank=True, default="")  # email Message-ID / UID for dedup
+    subject = models.CharField(blank=True, default="")
+    message_id = models.CharField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
 
