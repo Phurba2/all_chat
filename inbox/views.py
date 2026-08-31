@@ -4,10 +4,8 @@ from .gmail import is_configured, fetch_emails, send_reply
 from .models import Message
 
 def logout(request):
-    """Clear user session, delete all messages, and logout"""
-    # Delete all stored messages to prevent data leakage to next user
-    Message.objects.all().delete()
-    # Clear session
+    """Clear user session and logout"""
+    # Clear session only - don't delete messages so user can see them again when they log back in
     request.session.flush()
     return redirect("setup")
 
@@ -30,7 +28,7 @@ def setup(request):
             
             try:
                 # Try to fetch emails with the provided credentials
-                new_count = fetch_emails(email=email, password=password)
+                new_count = fetch_emails(email=email, password=password, user_email=email)
                 request.session["setup_message"] = f"Successfully connected! Fetched {new_count} new email(s)."
             except Exception as e:
                 request.session["setup_message"] = f"Connected, but couldn't fetch emails: {str(e)}"
@@ -52,12 +50,14 @@ def inbox(request, channel=None):
     if channel == "email" and not gmail_configured:
         return redirect("setup")
     
-    # If no messages exist and no credentials configured, redirect to setup
-    if not Message.objects.exists() and not gmail_configured:
+    # If no messages exist for this user and no credentials configured, redirect to setup
+    user_messages_exist = Message.objects.filter(user_email=session_email).exists() if session_email else False
+    if not user_messages_exist and not gmail_configured:
         return redirect("setup")
     
     names = dict(Message.CHANNELS)
-    qs = Message.objects.all()
+    # Filter messages by current user
+    qs = Message.objects.filter(user_email=session_email) if session_email else Message.objects.none()
     if channel:
         qs = qs.filter(channel=channel)
     conversations = {}
@@ -84,14 +84,17 @@ def inbox(request, channel=None):
 
 
 def conversation(request, channel, contact):
-    thread = Message.objects.filter(channel=channel, contact=contact)
+    # Get current user's email
+    session_email = request.session.get("GMAIL_EMAIL")
+    
+    # Filter thread by channel, contact, AND user_email
+    thread = Message.objects.filter(channel=channel, contact=contact, user_email=session_email)
     if not thread.exists():
         raise Http404
     if request.method == "POST":
         text = request.POST.get("text", "").strip()
         if text:
             # Use session credentials if available
-            session_email = request.session.get("GMAIL_EMAIL")
             session_password = request.session.get("GMAIL_APP_PASSWORD")
             
             if channel == "email" and is_configured(session_email, session_password):
@@ -100,11 +103,10 @@ def conversation(request, channel, contact):
                               email=session_email, password=session_password)
                 except Exception:
                     pass  # SMTP failed — the reply is still stored locally below
-            Message.objects.create(channel=channel, contact=contact, direction="out", text=text, is_read=True)
+            Message.objects.create(channel=channel, contact=contact, direction="out", text=text, is_read=True, user_email=session_email)
             return redirect("conversation", channel=channel, contact=contact)
     thread.filter(direction="in", is_read=False).update(is_read=True)  # mark read on open
     
-    session_email = request.session.get("GMAIL_EMAIL")
     return render(request, "conversation.html", {
         "thread": thread,
         "channel": channel,

@@ -38,44 +38,51 @@ def _get_body(email):
     return email.get_payload(decode=True).decode(email.get_content_charset() or "utf-8", "replace")
 
 
-def fetch_emails(email=None, password=None):
+def fetch_emails(email=None, password=None, user_email=None):
     if not is_configured(email, password):
         raise RuntimeError("Set Email and Password first.")
 
     # Use provided credentials or fall back to environment variables
     email = email or os.environ.get("GMAIL_EMAIL")
     password = password or os.environ.get("GMAIL_APP_PASSWORD")
+    user_email = user_email or email  # Default to current email if not specified
 
     mail = imaplib.IMAP4_SSL(IMAP_HOST)
     try:
         mail.login(email, password)
         mail.select("INBOX")
         _, data = mail.search(None, "ALL")
-        ids = data[0].split()[-3:]
+        all_ids = data[0].split()
         new = 0
-
-        for uid in ids:
+        
+        # Search backwards from most recent emails until we find 3 new ones
+        for uid in reversed(all_ids):
+            if new >= 3:  # Stop after finding 3 new emails
+                break
+                
             _, msg = mail.fetch(uid, "(BODY[])")
-            email = message_from_bytes(msg[0][1])
-            message_id = _decode(email.get("Message-ID", "")).strip()
+            email_msg = message_from_bytes(msg[0][1])
+            message_id = _decode(email_msg.get("Message-ID", "")).strip()
 
-            if message_id and Message.objects.filter(message_id=message_id).exists():
+            # Skip if already exists in database for this user
+            if message_id and Message.objects.filter(message_id=message_id, user_email=user_email).exists():
                 continue
 
-            body = _get_body(email)
+            body = _get_body(email_msg)
 
             summary = summarize_message(body)
             
-            name, address = parseaddr(_decode(email.get("From", "")))
+            name, address = parseaddr(_decode(email_msg.get("From", "")))
 
             Message.objects.create(
                 channel="email",
                 contact=address,
                 direction="in",
-                subject=_decode(email.get("Subject", "")),
+                subject=_decode(email_msg.get("Subject", "")),
                 text=body,
                 message_id=message_id,
                 summary=summary,
+                user_email=user_email,  # Store which user this message belongs to
             )
             new += 1
 

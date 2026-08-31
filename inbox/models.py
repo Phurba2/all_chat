@@ -6,6 +6,7 @@ class Message(models.Model):
         ("messenger", "Messenger"),
         ("email", "Gmail"),
     ]
+    user_email = models.CharField(default="", blank=True)  # Track which user this message belongs to
     channel = models.CharField(choices=CHANNELS)
     contact = models.CharField()
     direction = models.CharField(max_length=3, choices=[("in", "Incoming"), ("out", "Outgoing")], default="in")
