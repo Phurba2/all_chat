@@ -1,6 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
 
+{% if setup_message %}
+<div style="background: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 8px; padding: 12px; margin-bottom: 16px; text-align: center; color: #30d158;">
+  {{ setup_message }}
+</div>
+{% endif %}
+
+{% if not gmail_configured and not current %}
+<div style="background: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 8px; padding: 16px; margin-bottom: 16px; text-align: center;">
+  <div style="margin-bottom: 8px;">📬 Connect your Gmail to sync emails</div>
+  <a href="{% url 'setup' %}" style="display: inline-block; background: #58a6ff; color: #fff; padding: 8px 16px; border-radius: 8px; text-decoration: none; font-weight: 600;">Connect Gmail</a>
+</div>
+{% endif %}
+
 <nav style="display: flex; gap: 12px; margin-bottom: 16px; justify-content: center;">
   {% for key, label in channels %}
     <a href="{% url 'channel' key %}" >{{ label }}</a>

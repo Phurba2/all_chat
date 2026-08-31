@@ -32,9 +32,14 @@ def inbox(request, channel=None):
     # Check if Gmail is configured (env vars or session)
     session_email = request.session.get("GMAIL_EMAIL")
     session_password = request.session.get("GMAIL_APP_PASSWORD")
+    gmail_configured = is_configured(session_email, session_password)
+    
+    # If clicking Gmail channel and not configured, redirect to setup
+    if channel == "email" and not gmail_configured:
+        return redirect("setup")
     
     # If no messages exist and no credentials configured, redirect to setup
-    if not Message.objects.exists() and not is_configured(session_email, session_password):
+    if not Message.objects.exists() and not gmail_configured:
         return redirect("setup")
     
     names = dict(Message.CHANNELS)
@@ -59,6 +64,7 @@ def inbox(request, channel=None):
         "current": channel,
         "channels": Message.CHANNELS,
         "setup_message": setup_message,
+        "gmail_configured": gmail_configured,
     })
 
 
