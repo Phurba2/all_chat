@@ -3,8 +3,22 @@ from django.shortcuts import redirect, render
 from .gmail import is_configured, fetch_emails, send_reply
 from .models import Message
 
+def logout(request):
+    """Clear user session, delete all messages, and logout"""
+    # Delete all stored messages to prevent data leakage to next user
+    Message.objects.all().delete()
+    # Clear session
+    request.session.flush()
+    return redirect("setup")
+
 def setup(request):
     """Handle Gmail credentials setup"""
+    # If already logged in, redirect to inbox
+    session_email = request.session.get("GMAIL_EMAIL")
+    session_password = request.session.get("GMAIL_APP_PASSWORD")
+    if is_configured(session_email, session_password):
+        return redirect("inbox")
+    
     if request.method == "POST":
         email = request.POST.get("email", "").strip()
         password = request.POST.get("password", "").strip()
@@ -65,6 +79,7 @@ def inbox(request, channel=None):
         "channels": Message.CHANNELS,
         "setup_message": setup_message,
         "gmail_configured": gmail_configured,
+        "current_email": session_email if gmail_configured else None,
     })
 
 
@@ -88,4 +103,12 @@ def conversation(request, channel, contact):
             Message.objects.create(channel=channel, contact=contact, direction="out", text=text, is_read=True)
             return redirect("conversation", channel=channel, contact=contact)
     thread.filter(direction="in", is_read=False).update(is_read=True)  # mark read on open
-    return render(request, "conversation.html", {"thread": thread, "channel": channel, "channel_name": dict(Message.CHANNELS).get(channel, channel), "contact": contact})
+    
+    session_email = request.session.get("GMAIL_EMAIL")
+    return render(request, "conversation.html", {
+        "thread": thread,
+        "channel": channel,
+        "channel_name": dict(Message.CHANNELS).get(channel, channel),
+        "contact": contact,
+        "current_email": session_email,
+    })

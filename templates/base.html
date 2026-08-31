@@ -9,6 +9,43 @@ background: #1c1c1e;
 color: #f2f2f2;
 margin: 0;
     }
+
+header {
+background: #2c2c2e;
+border-bottom: 1px solid #3a3a3c;
+padding: 12px 16px;
+display: flex;
+justify-content: space-between;
+align-items: center;
+}
+
+header .user-info {
+display: flex;
+align-items: center;
+gap: 16px;
+}
+
+header .user-email {
+font-size: 14px;
+color: #a1a1a6;
+}
+
+header .logout-btn {
+background: #ff453a;
+color: #fff;
+padding: 6px 12px;
+border-radius: 6px;
+text-decoration: none;
+font-size: 13px;
+border: none;
+cursor: pointer;
+font-weight: 600;
+}
+
+header .logout-btn:hover {
+background: #e63828;
+}
+
 main {
 max-width: 680px;
 margin: 0 auto;
@@ -52,6 +89,14 @@ a:hover {
 </style>
 </head>
 <body>
+{% if current_email %}
+<header>
+    <div class="user-info">
+        <span class="user-email">👤 {{ current_email }}</span>
+    </div>
+    <a href="{% url 'logout' %}" class="logout-btn">Logout</a>
+</header>
+{% endif %}
 <main>
     {% block content %}{% endblock %}
 </main>
