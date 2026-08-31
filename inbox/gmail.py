@@ -11,7 +11,9 @@ IMAP_HOST = "imap.gmail.com"
 SMTP_HOST = "smtp.gmail.com"
 
 
-def is_configured():
+def is_configured(email=None, password=None):
+    if email and password:
+        return True
     return bool(os.environ.get("GMAIL_EMAIL") and os.environ.get("GMAIL_APP_PASSWORD"))
 
 
@@ -36,13 +38,17 @@ def _get_body(email):
     return email.get_payload(decode=True).decode(email.get_content_charset() or "utf-8", "replace")
 
 
-def fetch_emails():
-    if not is_configured():
+def fetch_emails(email=None, password=None):
+    if not is_configured(email, password):
         raise RuntimeError("Set Email and Password first.")
+
+    # Use provided credentials or fall back to environment variables
+    email = email or os.environ.get("GMAIL_EMAIL")
+    password = password or os.environ.get("GMAIL_APP_PASSWORD")
 
     mail = imaplib.IMAP4_SSL(IMAP_HOST)
     try:
-        mail.login(os.environ["GMAIL_EMAIL"], os.environ["GMAIL_APP_PASSWORD"])
+        mail.login(email, password)
         mail.select("INBOX")
         _, data = mail.search(None, "ALL")
         ids = data[0].split()[-3:]
@@ -76,3 +82,26 @@ def fetch_emails():
         return new
     finally:
         mail.logout()
+
+
+def send_reply(to, body, subject="", in_reply_to=None, email=None, password=None):
+    """Send an email reply via SMTP."""
+    if not is_configured(email, password):
+        raise RuntimeError("Email credentials not configured.")
+
+    # Use provided credentials or fall back to environment variables
+    email = email or os.environ.get("GMAIL_EMAIL")
+    password = password or os.environ.get("GMAIL_APP_PASSWORD")
+
+    msg = EmailMessage()
+    msg["From"] = email
+    msg["To"] = to
+    msg["Subject"] = subject or "Re: Your message"
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
+    msg.set_content(body)
+
+    with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
+        smtp.login(email, password)
+        smtp.send_message(msg)
