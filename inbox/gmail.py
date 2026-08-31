@@ -5,6 +5,7 @@ from email.message import EmailMessage
 from email.utils import parseaddr
 
 from .models import Message
+from ai_summary.services import summarize_message
 
 IMAP_HOST = "imap.gmail.com"
 SMTP_HOST = "smtp.gmail.com"
@@ -44,7 +45,7 @@ def fetch_emails():
         mail.login(os.environ["GMAIL_EMAIL"], os.environ["GMAIL_APP_PASSWORD"])
         mail.select("INBOX")
         _, data = mail.search(None, "ALL")
-        ids = data[0].split()
+        ids = data[0].split()[-3:]
         new = 0
 
         for uid in ids:
@@ -56,6 +57,8 @@ def fetch_emails():
                 continue
 
             body = _get_body(email)
+
+            summary = summarize_message(body)
             
             name, address = parseaddr(_decode(email.get("From", "")))
 
@@ -66,6 +69,7 @@ def fetch_emails():
                 subject=_decode(email.get("Subject", "")),
                 text=body,
                 message_id=message_id,
+                summary=summary,
             )
             new += 1
 

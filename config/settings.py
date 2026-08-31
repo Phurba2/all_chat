@@ -1,6 +1,9 @@
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = 'django-insecure-#6k3r8lx3zfia&drc#k_k)_s(v8ve7196c-0=k(_!h+%*jzkv!'
 
@@ -16,6 +19,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'inbox',
+    'ai_summary',
 ]
 
 MIDDLEWARE = [

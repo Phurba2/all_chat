@@ -4,11 +4,12 @@
 <a href="{% url 'inbox' %}">&larr; inbox</a>
 
 <div>
+  
   {% for m in thread %}
 
   <div class="msg">
     {% if m.subject %}<strong>{{ m.subject }}</strong><br>{% endif %}
-    {{ m.text|linebreaks }}
+    {% if m.summary %}<p>{{ m.summary }}</p> {% endif %}
   </div>
 
   {% endfor %}
