@@ -5,7 +5,6 @@ class Message(models.Model):
         ("whatsapp", "WhatsApp"),
         ("messenger", "Messenger"),
         ("email", "Gmail"),
-        ("tiktok", "TikTok"),
     ]
     channel = models.CharField(choices=CHANNELS)
     contact = models.CharField()

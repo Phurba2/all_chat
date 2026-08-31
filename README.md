@@ -1,6 +1,6 @@
 # Unified Inbox
 
-A minimal Django app that pulls messages from WhatsApp, Messenger, Gmail, and TikTok into a single dashboard.
+A minimal Django app that pulls messages from WhatsApp, Messenger, and Gmail into a single dashboard.
 
 ## Quickstart
 
@@ -26,12 +26,6 @@ export GMAIL_APP_PASSWORD=your-app-password
 - `inbox/models.py` — Message model
 - `inbox/views.py` — Conversation list & thread views
 - `templates/` — HTML templates
-- `docs/` — GitHub Pages (Terms, Privacy)
-
-## Legal
-
-- [Terms of Service](https://phurba2.github.io/all_chat/terms.html)
-- [Privacy Policy](https://phurba2.github.io/all_chat/privacy.html)
 
 ## License
 

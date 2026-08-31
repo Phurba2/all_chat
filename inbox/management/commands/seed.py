@@ -13,8 +13,6 @@ SAMPLE = [
     ("messenger", "Lisa Nguyen", "", "Sent you a voice note about the event."),
     ("email", "sarah@example.com", "Refund request for order #4821", "Hi, I'd like a refund for order #4821. Thanks!"),
     ("email", "sarah@example.com", "Re: Refund request for order #4821", "Invoice attached below for reference."),
-    ("tiktok", "@creatorkate", "", "Can I feature your product in my next TikTok video?"),
-    ("tiktok", "@creatorkate", "", "I have 50k followers — happy to do a collab!"),
 ]
 
 
@@ -38,6 +36,5 @@ class Command(BaseCommand):
         # a couple of outgoing replies so threads feel real
         Message.objects.create(channel="whatsapp", contact="Priya Sharma", direction="out",
                                text="Yes, size M is in stock — ₹1,499 shipped free to Mumbai. Confirm?", is_read=True)
-        Message.objects.create(channel="tiktok", contact="@creatorkate", direction="out",
-                               text="Love that! Sending over our collab details.", is_read=True)
+
         self.stdout.write(self.style.SUCCESS(f"Seeded {Message.objects.count()} messages."))
