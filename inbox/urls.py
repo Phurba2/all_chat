@@ -8,4 +8,6 @@ urlpatterns = [
     path("logout/", views.logout, name="logout"),
     path("channel/<str:channel>/", views.inbox, name="channel"),
     path("channel/<str:channel>/<str:contact>/", views.conversation, name="conversation"),
+
+    path("messenger/webhook/", views.messenger_webhook, name="messenger_webhook"),
 ]

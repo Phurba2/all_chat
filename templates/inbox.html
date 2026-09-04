@@ -14,6 +14,13 @@
 </div>
 {% endif %}
 
+{% if current == "messenger" and not messenger_configured %}
+<div style="background: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 8px; padding: 12px; margin-bottom: 16px; text-align: center;">
+  <div style="margin-bottom: 8px;">💬 Messenger isn't configured</div>
+  <div style="font-size: 13px; color: #a1a1a6;">Set META_PAGE_ID, META_PAGE_ACCESS_TOKEN, META_GRAPH_VERSION and META_VERIFY_TOKEN in your .env to receive Messenger messages at /messenger/webhook/.</div>
+</div>
+{% endif %}
+
 <nav style="display: flex; gap: 12px; margin-bottom: 16px; justify-content: center;">
   {% for key, label in channels %}
     <a href="{% url 'channel' key %}" >{{ label }}</a>
