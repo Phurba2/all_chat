@@ -92,7 +92,7 @@ a:hover {
 {% if current_email %}
 <header>
     <div class="user-info">
-        <span class="user-email">👤 {{ current_email }}</span>
+        <span class="user-email">{{ current_email }}</span>
     </div>
     <a href="{% url 'logout' %}" class="logout-btn">Logout</a>
 </header>

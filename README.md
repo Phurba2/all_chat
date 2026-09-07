@@ -15,6 +15,8 @@ Open http://127.0.0.1:8000
 
 ## Gmail Setup
 
+Gmail can be connected per-user from the browser at `/setup/` (email + app password), or configured server-side via environment variables:
+
 ```bash
 export GMAIL_EMAIL=you@gmail.com
 export GMAIL_APP_PASSWORD=your-app-password
@@ -23,7 +25,17 @@ export GMAIL_APP_PASSWORD=your-app-password
 
 ## Messenger Setup
 
-Messenger is configured server-side via environment variables (add them to your `.env`):
+Messenger can be connected from the browser at `/setup/messenger/` (Page ID + Page Access Token), just like Gmail. Credentials are stored in the browser session, and on connect the app backfills recent conversations via the Graph API.
+
+The same page also collects the **App Secret** and **Verify Token**. These are saved server-side (to a gitignored `messenger_server_config.json`) because Meta calls the webhook without a browser session — session storage wouldn't work for them. They can alternatively be set via environment variables:
+
+```bash
+export META_APP_SECRET=your-app-secret
+export META_VERIFY_TOKEN=something-you-create
+export META_GRAPH_VERSION=v21.0
+```
+
+For real-time message delivery, the webhook must be configured server-side. Server config saved from the setup page takes precedence over these environment variables (add them to your `.env` if you prefer):
 
 ```bash
 export META_PAGE_ID=your-page-id
@@ -49,8 +61,10 @@ To catch up on messages delivered while the webhook was down or not yet subscrib
 
 Running it repeatedly is safe — messages already in the database are skipped.
 
-> Messenger messages are stored without a `user_email` because they belong to the Page, not to an individual Gmail session, so they show up for everyone using the inbox.
-
+> Messenger works like Gmail: each browser connects the Page it wants to use, and
+> messages are stored under that Page, so each connected Page only sees its own
+> conversations. Env vars configure the server-side webhook only; they do not
+> unlock the Messenger channel in the browser.
 
 ## Project Structure
 

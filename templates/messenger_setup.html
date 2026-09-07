@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Setup Gmail – Unified Inbox</title>
+<title>Setup Messenger – Unified Inbox</title>
 <style>
   body {
     font: 15px/1.5 sans-serif;
@@ -39,7 +39,7 @@
     color: #a1a1a6;
     margin-bottom: 4px;
   }
-  input[type="email"],
+  input[type="text"],
   input[type="password"] {
     width: 100%;
     padding: 10px 12px;
@@ -79,22 +79,25 @@
     font-size: 13px;
     text-align: center;
   }
-  .skip {
-    display: block;
-    text-align: center;
+  .hint {
     margin-top: 16px;
     color: #a1a1a6;
-    font-size: 13px;
-    text-decoration: none;
+    font-size: 12px;
+    line-height: 1.6;
   }
-  .skip:hover {
+  .hint code {
     color: #f2f2f2;
+    background: #1c1c1e;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid #3a3a3c;
+    word-break: break-all;
   }
 </style>
 </head>
 <body>
   <div class="container">
-    <h1>📬 Connect Gmail</h1>
+    <h1>💬 Connect Messenger</h1>
 
     {% if error %}
     <div class="error">{{ error }}</div>
@@ -103,14 +106,27 @@
     <form method="post">
       {% csrf_token %}
 
-      <label for="email">Email</label>
-      <input type="email" id="email" name="email" required autocomplete="off">
+      <label for="page_id">Page ID</label>
+      <input type="text" id="page_id" name="page_id" placeholder="e.g. 123456789012345" value="{{ page_id }}" required autocomplete="off">
 
-      <label for="password">App password</label>
-      <input type="password" id="password" name="password" required autocomplete="off">
+      <label for="access_token">Page Access Token</label>
+      <input type="password" id="access_token" name="access_token" placeholder="EAAG..." value="{{ access_token }}" required autocomplete="off">
 
-      <button type="submit">Connect</button>
+      <label for="graph_version">Graph API version</label>
+      <input type="text" id="graph_version" name="graph_version" placeholder="v21.0" value="{{ graph_version }}" autocomplete="off">
+
+      <label for="app_secret">App Secret</label>
+      <input type="password" id="app_secret" name="app_secret" placeholder="Verify webhook payloads" value="{{ app_secret }}" autocomplete="off">
+
+      <label for="verify_token">Verify Token</label>
+      <input type="text" id="verify_token" name="verify_token" placeholder="Your webhook verify token" value="{{ verify_token }}" autocomplete="off">
+
+      <button type="submit">Connect &amp; Sync</button>
     </form>
+
+    <p class="hint">Page credentials stay in this browser. App Secret and Verify
+      Token are stored server-side so Meta can verify the webhook at
+      <code>/messenger/webhook/</code>.</p>
   </div>
 </body>
 </html>

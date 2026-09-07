@@ -19,7 +19,7 @@ class Message(models.Model):
     summary = models.TextField(blank=True, default="")
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["created_at"]
 
     def __str__(self):
         return f"[{self.channel}] {self.contact}: {self.text[:50]}"
