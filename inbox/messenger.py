@@ -12,7 +12,6 @@ from .models import Message
 # without env vars. Stored outside the repo (gitignored).
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "messenger_server_config.json"
 
-
 def _read_server_config():
     try:
         with open(CONFIG_PATH) as f:
@@ -28,12 +27,6 @@ def _write_server_config(data):
 
 def save_server_config(page_id=None, access_token=None, app_secret=None,
                        verify_token=None, graph_version=None):
-    """Persist Messenger webhook credentials server-side (like the .env vars).
-
-    Meta calls /messenger/webhook/ without a browser session, so credentials
-    entered on the setup page must be stored server-side to verify the
-    handshake (verify token) and event payloads (app secret).
-    """
     data = _read_server_config()
     values = {
         "META_PAGE_ID": page_id,
@@ -49,29 +42,18 @@ def save_server_config(page_id=None, access_token=None, app_secret=None,
 
 
 def _config_value(key, env_fallback):
-    """Server config saved from the setup page, falling back to env vars."""
     return _read_server_config().get(key) or env_fallback
 
-
 def webhook_page_id():
-    """Page the webhook serves, from server config or env vars."""
     return _config_value("META_PAGE_ID", PAGE_ID)
-
 
 def webhook_app_secret():
     return _config_value("META_APP_SECRET", APP_SECRET)
 
-
 def webhook_verify_token():
     return _config_value("META_VERIFY_TOKEN", VERIFY_TOKEN)
 
-
 def verify_payload_signature(raw_body, signature):
-    """Check Meta's X-Hub-Signature-256 header with the App Secret.
-
-    Returns True when no app secret is configured (nothing to check) or when
-    the signature matches; False otherwise.
-    """
     secret = webhook_app_secret()
     if not secret:
         return True
@@ -82,9 +64,7 @@ def verify_payload_signature(raw_body, signature):
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
 
-
 def _resolve(page_id=None, access_token=None, graph_version=None):
-    """Resolve config from the caller (e.g. the session), falling back to env vars."""
     return (
         page_id or PAGE_ID,
         access_token or PAGE_ACCESS_TOKEN,
@@ -93,13 +73,11 @@ def _resolve(page_id=None, access_token=None, graph_version=None):
 
 
 def is_configured(page_id=None, access_token=None, graph_version=None):
-    """True when Page credentials are available (explicit args or env vars)."""
     page_id, access_token, _ = _resolve(page_id, access_token, graph_version)
     return bool(page_id and access_token)
 
 
 def send_message(recipient_id, text, page_id=None, access_token=None, graph_version=None):
-    """Send message to user Page-ID via Meta Send API."""
     page_id, access_token, graph_version = _resolve(page_id, access_token, graph_version)
     if not page_id or not access_token:
         raise RuntimeError("Messenger is not configured.")
@@ -136,7 +114,6 @@ def send_message(recipient_id, text, page_id=None, access_token=None, graph_vers
 
 
 def _get_paged(url, headers, params=None, max_pages=10):
-    """GET Graph API endpoint and follow cursor pagination."""
     items = []
     for _ in range(max_pages):
         response = requests.get(url, params=params, headers=headers, timeout=15)
@@ -152,18 +129,6 @@ def _get_paged(url, headers, params=None, max_pages=10):
 
 
 def fetch_messages(page_id=None, access_token=None, graph_version=None):
-    """Backfill inbound Messenger messages via Graph API.
-
-    The webhook is the normal receive path (Meta pushes events to
-    /messenger/webhook/). This is a fallback for catching up on messages
-    delivered while the webhook was down or not yet subscribed: it lists the
-    Page's conversations, reads each conversation's messages, and stores any
-    inbound text messages not already in the database. Returns the number of
-    new messages stored.
-
-    Requires a Page Access Token with permission to read the Page's
-    conversations (pages_messaging).
-    """
     page_id, access_token, graph_version = _resolve(page_id, access_token, graph_version)
     if not page_id or not access_token:
         raise RuntimeError("Messenger is not configured.")
