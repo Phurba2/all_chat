@@ -3,13 +3,9 @@ import hmac
 import json
 import os
 from pathlib import Path
-
 import requests
-
 from .models import Message
 
-# Server-level config saved from /setup/messenger/ so the webhook can run
-# without env vars. Stored outside the repo (gitignored).
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "messenger_server_config.json"
 
 def _read_server_config():
