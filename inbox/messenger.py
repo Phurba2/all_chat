@@ -8,15 +8,6 @@ import requests
 
 from .models import Message
 
-GRAPH_VERSION = os.environ.get("META_GRAPH_VERSION", "")
-PAGE_ID = os.environ.get("META_PAGE_ID")
-PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN")
-APP_SECRET = os.environ.get("META_APP_SECRET")
-VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN")
-
-# Graph API version used when none is given in env or by the caller.
-DEFAULT_GRAPH_VERSION = "v21.0"
-
 # Server-level config saved from /setup/messenger/ so the webhook can run
 # without env vars. Stored outside the repo (gitignored).
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "messenger_server_config.json"
