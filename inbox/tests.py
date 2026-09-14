@@ -322,7 +322,9 @@ class MessengerFetchTests(TestCase):
     @mock.patch("inbox.messenger.requests.get")
     def test_fetch_messages_backfills_inbound(self, mock_get):
         mock_get.side_effect = [
-            self._mock_response({"data": [{"id": "t_conv1"}], "paging": {}}),
+            self._mock_response({"data": [{"id": "t_conv1", "participants": {"data": [
+                {"id": "psid-9", "name": "Pat"},
+            ]}}], "paging": {}}),
             self._mock_response({"data": [{"id": "mid.x", "message": "Hi there",
                                             "from": {"id": "psid-9"}}], "paging": {}}),
         ]
@@ -334,7 +336,7 @@ class MessengerFetchTests(TestCase):
         self.assertEqual(result, 1)
         msg = Message.objects.get()
         self.assertEqual(msg.channel, "messenger")
-        self.assertEqual(msg.contact, "psid-9")
+        self.assertEqual(msg.contact, "Pat")  # resolved from conversation participants
         self.assertEqual(msg.direction, "in")
         self.assertEqual(msg.text, "Hi there")
         self.assertEqual(msg.message_id, "mid.x")
@@ -349,10 +351,13 @@ class MessengerFetchTests(TestCase):
 
     @mock.patch("inbox.messenger.requests.get")
     def test_fetch_skips_outbound_duplicates_and_attachments(self, mock_get):
-        Message.objects.create(channel="messenger", contact="psid-9", direction="in",
+        Message.objects.create(channel="messenger", contact="Pat", direction="in",
                                text="already here", message_id="mid.x", user_email="123")
         mock_get.side_effect = [
-            self._mock_response({"data": [{"id": "t_conv1"}, {"id": "t_conv2"}], "paging": {}}),
+            self._mock_response({"data": [
+                {"id": "t_conv1", "participants": {"data": [{"id": "psid-9", "name": "Pat"}]}},
+                {"id": "t_conv2", "participants": {"data": [{"id": "psid-9", "name": "Pat"}]}},
+            ], "paging": {}}),
             # t_conv1: page's own outbound, a duplicate of a stored message, an attachment-only message
             self._mock_response({"data": [
                 {"id": "mid.1", "message": "Our reply", "from": {"id": "123"}},
@@ -371,13 +376,42 @@ class MessengerFetchTests(TestCase):
         self.assertEqual(result, 1)  # only mid.new is new
         self.assertEqual(Message.objects.count(), 2)
         self.assertTrue(Message.objects.filter(message_id="mid.new").exists())
+        self.assertEqual(Message.objects.get(message_id="mid.new").contact, "Pat")
+
+    @mock.patch("inbox.messenger.requests.get")
+    def test_fetch_stores_outbound_messages_when_requested(self, mock_get):
+        mock_get.side_effect = [
+            self._mock_response({"data": [
+                {"id": "t_conv1", "participants": {"data": [{"id": "psid-9", "name": "Pat"}]}},
+            ], "paging": {}}),
+            self._mock_response({"data": [
+                {"id": "mid.out1", "message": "Outbound reply", "from": {"id": "123"},
+                 "to": {"data": [{"id": "psid-9", "name": "Pat"}]}},
+            ], "paging": {}}),
+        ]
+        with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
+             mock.patch("inbox.messenger.PAGE_ID", "123"), \
+             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"):
+            result = messenger.fetch_messages(include_outbound=True)
+
+        self.assertEqual(result, 1)
+        msg = Message.objects.get(message_id="mid.out1")
+        self.assertEqual(msg.direction, "out")
+        self.assertEqual(msg.contact, "Pat")
+        self.assertEqual(msg.contact_id, "psid-9")
+        self.assertEqual(msg.text, "Outbound reply")
+        self.assertTrue(msg.is_read)
 
     @mock.patch("inbox.messenger.requests.get")
     def test_fetch_follows_cursor_pagination(self, mock_get):
         mock_get.side_effect = [
-            self._mock_response({"data": [{"id": "t_1"}],
+            self._mock_response({"data": [{"id": "t_1", "participants": {"data": [
+                {"id": "psid-1", "name": "Ada"},
+            ]}}],
                                  "paging": {"next": "https://graph.facebook.com/v21.0/123/conversations?after=cursor2"}}),
-            self._mock_response({"data": [{"id": "t_2"}], "paging": {}}),
+            self._mock_response({"data": [{"id": "t_2", "participants": {"data": [
+                {"id": "psid-2", "name": "Bob"},
+            ]}}], "paging": {}}),
             self._mock_response({"data": [{"id": "mid.a", "message": "from t1",
                                             "from": {"id": "psid-1"}}], "paging": {}}),
             self._mock_response({"data": [{"id": "mid.b", "message": "from t2",
@@ -405,7 +439,9 @@ class MessengerFetchTests(TestCase):
     @mock.patch("inbox.messenger.requests.get")
     def test_fetch_uses_session_credentials(self, mock_get):
         mock_get.side_effect = [
-            self._mock_response({"data": [{"id": "t_conv1"}], "paging": {}}),
+            self._mock_response({"data": [{"id": "t_conv1", "participants": {"data": [
+                {"id": "psid-9", "name": "Pat"},
+            ]}}], "paging": {}}),
             self._mock_response({"data": [{"id": "mid.x", "message": "Hi there",
                                             "from": {"id": "psid-9"}}], "paging": {}}),
         ]
@@ -461,6 +497,27 @@ class MessengerConversationTests(TestCase):
 
         self.assertRedirects(resp, "/channel/messenger/psid-1/")
         self.assertEqual(Message.objects.filter(direction="out").count(), 1)
+
+    @mock.patch("inbox.views.messenger.send_message")
+    def test_reply_resolves_psid_when_contact_is_display_name(self, mock_send):
+        mock_send.return_value = {"message_id": "mid.sent123", "recipient_id": "psid-99"}
+        self._connect_messenger()
+        # Message has human display name, but has contact_id set to PSID
+        Message.objects.create(channel="messenger", contact="Phurba Sherpa", contact_id="psid-99",
+                               direction="in", text="Hi", user_email=self.PAGE_ID)
+        resp = self.client.post("/channel/messenger/Phurba%20Sherpa/", {"text": "I am fine thank you"})
+        self.assertRedirects(resp, "/channel/messenger/Phurba%20Sherpa/")
+
+        mock_send.assert_called_once()
+        args, kwargs = mock_send.call_args
+        # Should call send_message with PSID, NOT the display name
+        self.assertEqual(args, ("psid-99", "I am fine thank you"))
+
+        out = Message.objects.filter(direction="out", text="I am fine thank you").get()
+        self.assertEqual(out.contact, "Phurba Sherpa")
+        self.assertEqual(out.contact_id, "psid-99")
+        self.assertEqual(out.message_id, "mid.sent123")
+        self.assertEqual(out.user_email, self.PAGE_ID)
 
     def test_thread_not_visible_without_connected_page(self):
         # No session creds → messenger conversations are not accessible at all

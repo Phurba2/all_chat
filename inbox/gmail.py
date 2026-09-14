@@ -1,4 +1,8 @@
-import imaplib, os, re, smtplib
+import html as html_lib
+import imaplib
+import os
+import re
+import smtplib
 from email import message_from_bytes
 from email.header import decode_header
 from email.message import EmailMessage
@@ -29,13 +33,16 @@ def _get_body(email):
     if email.is_multipart():
         for part in email.walk():
             if part.get_content_type() == "text/plain":
-                return part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
+                payload = part.get_payload(decode=True) or b""
+                return payload.decode(part.get_content_charset() or "utf-8", "replace").strip()
         for part in email.walk():
             if part.get_content_type() == "text/html":
-                html = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
-                return re.sub(r"<[^>]+>", "", html)
+                payload = part.get_payload(decode=True) or b""
+                html_body = payload.decode(part.get_content_charset() or "utf-8", "replace")
+                return re.sub(r"<[^>]+>", "", html_lib.unescape(html_body)).strip()
         return ""
-    return email.get_payload(decode=True).decode(email.get_content_charset() or "utf-8", "replace")
+    payload = email.get_payload(decode=True) or b""
+    return payload.decode(email.get_content_charset() or "utf-8", "replace").strip()
 
 
 def fetch_emails(email=None, password=None, user_email=None):
@@ -55,9 +62,9 @@ def fetch_emails(email=None, password=None, user_email=None):
         all_ids = data[0].split()
         new = 0
         
-        # Search backwards from most recent emails until we find 3 new ones
-        for uid in reversed(all_ids):
-            if new >= 3:  # Stop after finding 3 new emails
+        # Fetch a bounded recent window so one old mailbox cannot make setup slow.
+        for uid in reversed(all_ids[-50:]):
+            if new >= 10:
                 break
                 
             _, msg = mail.fetch(uid, "(BODY[])")

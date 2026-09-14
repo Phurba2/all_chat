@@ -1,30 +1,147 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .channel-nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    justify-content: center;
+  }
+  .channel-nav a {
+    padding: 6px 18px;
+    border-radius: 20px;
+    background: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    color: #f2f2f2;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .channel-nav a:hover, .channel-nav a.active {
+    background: #0084ff;
+    border-color: #0084ff;
+    color: #fff;
+    text-decoration: none;
+  }
+
+  .conv-list { display: flex; flex-direction: column; gap: 2px; }
+
+  .conv-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    background: #2c2c2e;
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s;
+  }
+  .conv-row:hover { background: #3a3a3c; text-decoration: none; }
+
+  /* avatar circle */
+  .avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #3a3a3c;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+    font-weight: 700;
+    color: #a1a1a6;
+  }
+
+  .conv-body { flex: 1; min-width: 0; }
+  .conv-name {
+    font-weight: 600;
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .conv-preview {
+    font-size: 13px;
+    color: #a1a1a6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+  .conv-preview.unread { color: #f2f2f2; font-weight: 600; }
+
+  .conv-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .conv-time { font-size: 11px; color: #636366; }
+  .unread-badge {
+    background: #0084ff;
+    color: #fff;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .empty { text-align: center; color: #636366; margin-top: 40px; }
+</style>
 
 {% if setup_message %}
-<div style="background: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 8px; padding: 12px; margin-bottom: 16px; text-align: center; color: #30d158;">
+<div style="background:#2c2c2e;border:1px solid #3a3a3c;border-radius:8px;padding:12px;margin-bottom:16px;text-align:center;color:#30d158;">
   {{ setup_message }}
 </div>
 {% endif %}
 
-<nav style="display: flex; gap: 12px; margin-bottom: 16px; justify-content: center;">
+<nav class="channel-nav">
   {% for key, label in channels %}
-    <a href="{% url 'channel' key %}" >{{ label }}</a>
+    <a href="{% url 'channel' key %}" {% if current == key %}class="active"{% endif %}>{{ label }}</a>
   {% endfor %}
 </nav>
 
 {% if conversations %}
-
+<div class="conv-list">
   {% for c in conversations %}
-    <a class="row" href="{% url 'conversation' c.channel c.contact %}">
-      <span style="min-width:0">
-        <div class="name">{{ c.contact }}</div>
-      </span>
-    </a>
-  {% endfor %}
+  <a class="conv-row" href="{% url 'conversation' c.channel c.contact %}">
 
+    <!-- avatar: first letter of contact -->
+    <div class="avatar">{{ c.contact|first|upper }}</div>
+
+    <div class="conv-body">
+      <div class="conv-name">{{ c.contact }}</div>
+      <div class="conv-preview {% if c.unread %}unread{% endif %}">
+        {% if c.last.direction == "out" %}<span style="color:#636366;">You: </span>{% endif %}
+        {{ c.last.text|truncatechars:50 }}
+      </div>
+    </div>
+
+    <div class="conv-right">
+      <span class="conv-time">
+        {% now "Y-m-d" as today %}
+        {% if c.last.created_at|date:"Y-m-d" == today %}
+          {{ c.last.created_at|date:"H:i" }}
+        {% else %}
+          {{ c.last.created_at|date:"M j" }}
+        {% endif %}
+      </span>
+      {% if c.unread %}
+        <span class="unread-badge">{{ c.unread }}</span>
+      {% endif %}
+    </div>
+
+  </a>
+  {% endfor %}
+</div>
 {% else %}
-  <div>Empty</div>
+  <div class="empty">No messages yet.</div>
 {% endif %}
 
 {% endblock %}

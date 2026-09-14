@@ -12,7 +12,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            new = fetch_messages()
+            new = fetch_messages(include_outbound=True)
         except RuntimeError as e:
             raise CommandError(str(e))
         self.stdout.write(self.style.SUCCESS(f"Stored {new} new Messenger message(s)."))

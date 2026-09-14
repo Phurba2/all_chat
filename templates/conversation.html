@@ -1,35 +1,184 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .thread { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
-  .msg { max-width: 85%; margin-bottom: 0; white-space: pre-wrap; word-break: break-word; }
-  .msg.in { align-self: flex-start; }
-  .msg.out { align-self: flex-end; }
-  .msg .summary { display: block; color: #a1a1a6; font-size: 13px; margin-top: 6px; }
-  .msg .meta { display: block; font-size: 11px; color: #636366; margin-top: 4px; }
-  .reply { display: flex; gap: 8px; margin-top: 16px; }
-  .reply input { flex: 1; min-width: 0; background: #1c1c1e; border: 1px solid #3a3a3c; border-radius: 8px; padding: 10px 12px; color: #f2f2f2; font-size: 15px; }
-  .reply button { background: #58a6ff; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; font-size: 15px; font-weight: 600; cursor: pointer; }
-  .reply button:hover { background: #4090e0; }
+  /* ── layout ─────────────────────────────────────────── */
+  .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #3a3a3c;
+    margin-bottom: 0;
+    position: sticky;
+    top: 0;
+    background: #1c1c1e;
+    z-index: 10;
+  }
+  .chat-header a { font-size: 20px; line-height: 1; }
+  .chat-header .title { font-weight: 600; font-size: 16px; }
+  .chat-header .subtitle { font-size: 12px; color: #a1a1a6; }
+
+  /* scrollable message area */
+  .thread {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px 0 8px;
+    /* leave room for the fixed reply bar */
+    min-height: calc(100vh - 200px);
+  }
+
+  /* ── bubbles ─────────────────────────────────────────── */
+  .bubble-row {
+    display: flex;
+    flex-direction: column;
+    max-width: 75%;
+  }
+  .bubble-row.out { align-self: flex-end; align-items: flex-end; }
+  .bubble-row.in  { align-self: flex-start; align-items: flex-start; }
+
+  .bubble {
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  /* outgoing — blue like Messenger */
+  .bubble-row.out .bubble {
+    background: #0084ff;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  /* incoming — dark grey */
+  .bubble-row.in .bubble {
+    background: #3a3a3c;
+    color: #f2f2f2;
+    border-bottom-left-radius: 4px;
+  }
+
+  .bubble .subject {
+    font-weight: 700;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .bubble .summary {
+    display: block;
+    font-size: 12px;
+    margin-top: 6px;
+    opacity: 0.75;
+  }
+  .meta {
+    font-size: 11px;
+    color: #636366;
+    margin-top: 2px;
+    padding: 0 4px;
+  }
+
+  /* date separator */
+  .date-sep {
+    text-align: center;
+    font-size: 11px;
+    color: #636366;
+    margin: 10px 0 6px;
+  }
+
+  /* ── reply bar ───────────────────────────────────────── */
+  .reply-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 0 4px;
+    border-top: 1px solid #3a3a3c;
+    margin-top: 8px;
+    position: sticky;
+    bottom: 0;
+    background: #1c1c1e;
+  }
+  .reply-bar input {
+    flex: 1;
+    min-width: 0;
+    background: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    border-radius: 22px;
+    padding: 10px 16px;
+    color: #f2f2f2;
+    font-size: 15px;
+    outline: none;
+  }
+  .reply-bar input:focus { border-color: #0084ff; }
+  .reply-bar button {
+    background: #0084ff;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .reply-bar button:hover { background: #006ee0; }
 </style>
 
-<a href="{% url 'inbox' %}">&larr; inbox</a>
-<div style="margin-top: 12px; font-weight: 600;">{{ channel_name }} · {{ contact }}</div>
-
-<div class="thread">
-  {% for m in thread %}
-  <div class="msg {{ m.direction }}">
-    {% if m.subject %}<strong>{{ m.subject }}</strong><br>{% endif %}
-    {{ m.text|linebreaksbr }}
-    {% if m.summary and channel != "messenger" %}<span class="summary">✨ {{ m.summary }}</span>{% endif %}
-    <small class="meta">{{ m.created_at|date:"M j, H:i" }}</small>
+<!-- header -->
+<div class="chat-header">
+  <a href="{% url 'inbox' %}" title="Back">&#8592;</a>
+  <div>
+    <div class="title">{{ contact }}</div>
+    <div class="subtitle">{{ channel_name }}</div>
   </div>
+</div>
+
+{% if send_error %}
+<div style="background: #3a1c1c; border: 1px solid #ff453a; border-radius: 8px; padding: 10px 14px; margin: 12px 0 0; color: #ff453a; font-size: 13px;">
+  ⚠️ <strong>Send error:</strong> {{ send_error }}
+</div>
+{% endif %}
+
+<!-- messages — oldest at top, newest at bottom -->
+<div class="thread" id="thread">
+  {% for m in thread %}
+
+  {# date separator when day changes #}
+  {% ifchanged m.created_at|date:"Y-m-d" %}
+  <div class="date-sep">{{ m.created_at|date:"F j, Y" }}</div>
+  {% endifchanged %}
+
+  <div class="bubble-row {{ m.direction }}">
+    <div class="bubble">
+      {% if m.subject %}<span class="subject">{{ m.subject }}</span>{% endif %}
+      {{ m.text|linebreaksbr }}
+      {% if m.summary and channel != "messenger" %}
+        <span class="summary">✨ {{ m.summary }}</span>
+      {% endif %}
+    </div>
+    <span class="meta">{{ m.created_at|date:"H:i" }}</span>
+  </div>
+
   {% endfor %}
 </div>
 
-<form class="reply" method="post" action="">
+<!-- reply bar -->
+<form class="reply-bar" method="post" action="">
   {% csrf_token %}
-  <input type="text" name="text" placeholder="Reply…" autofocus required>
-  <button type="submit">Send</button>
+  <input type="text" name="text" id="reply-input" placeholder="Aa" autofocus required>
+  <button type="submit" title="Send">&#10148;</button>
 </form>
+
+<script>
+  // Scroll to the very bottom so the newest message is visible on load
+  (function () {
+    var thread = document.getElementById("thread");
+    thread.scrollIntoView(false);
+    window.scrollTo(0, document.body.scrollHeight);
+  })();
+
+  // Keep focus in the reply box after scrolling
+  document.getElementById("reply-input").focus();
+</script>
 {% endblock %}

@@ -1,5 +1,6 @@
 import json
 
+from django.db import IntegrityError
 from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -43,6 +44,9 @@ def _owner_filter(channel, session_email=None, messenger_page_id=None):
     if session_email:
         return Q(user_email=session_email) | Q(user_email="")
     return Q(user_email="")
+    if session_email:
+        return Q(user_email=session_email) | Q(user_email="")
+    return Q(user_email="")
 
 
 def _session_user_label(request):
@@ -55,8 +59,8 @@ def _session_user_label(request):
     email = request.session.get("GMAIL_EMAIL")
     if email:
         return f"👤 {email}"
-    if _messenger_session_connected(request):
-        page_id, _, _ = _messenger_session_config(request)
+    page_id, access_token, _ = _messenger_session_config(request)
+    if page_id and access_token:
         return f"💬 Page {page_id}"
     return None
 
@@ -159,7 +163,7 @@ def setup_messenger(request):
             })
 
     return render(request, "messenger_setup.html", {
-        "graph_version": graph_version or messenger.GRAPH_VERSION or messenger.DEFAULT_GRAPH_VERSION,
+        "graph_version": graph_version or messenger._env("META_GRAPH_VERSION") or messenger.DEFAULT_GRAPH_VERSION,
     })
 
 
@@ -217,48 +221,65 @@ def inbox(request, channel=None):
 
 
 def conversation(request, channel, contact):
-    # Get current user's email
     session_email = request.session.get("GMAIL_EMAIL")
+    page_id, access_token, graph_version = _messenger_session_config(request)
     messenger_connected = _messenger_session_connected(request)
-    messenger_page_id = request.session.get("META_PAGE_ID") if messenger_connected else None
+    messenger_page_id = page_id if messenger_connected else None
 
     # Filter thread by channel, contact, AND owner
     owner = _owner_filter(channel, session_email, messenger_page_id)
-    thread = Message.objects.filter(channel=channel, contact=contact).filter(owner)
+    thread = Message.objects.filter(channel=channel, contact=contact).filter(owner).order_by("created_at")
     if not thread.exists():
         raise Http404
+
+    send_error = request.session.pop("send_error", None)
+
     if request.method == "POST":
         text = request.POST.get("text", "").strip()
         if text:
-            # Use session credentials if available
+            sent_mid = ""
             session_password = request.session.get("GMAIL_APP_PASSWORD")
-            page_id, access_token, graph_version = _messenger_session_config(request)
-            
+
             if channel == "email" and is_configured(session_email, session_password):
                 try:
                     send_reply(contact, text, in_reply_to=thread.last().message_id,
                               email=session_email, password=session_password)
-                except Exception:
-                    pass  # SMTP failed — the reply is still stored locally below
+                except Exception as e:
+                    request.session["send_error"] = f"Failed to send email: {str(e)}"
             elif channel == "messenger" and messenger_connected:
+                # Find recipient PSID: from thread's contact_id, or contact name
+                psid = thread.exclude(contact_id="").values_list("contact_id", flat=True).last() or contact
                 try:
-                    messenger.send_message(contact, text,
-                                           page_id=page_id, access_token=access_token,
-                                           graph_version=graph_version)
-                except Exception:
-                    pass  # Send API failed — the reply is still stored locally below
-            # Messenger messages belong to the connected Page (like Gmail's email)
+                    res = messenger.send_message(psid, text,
+                                                 page_id=page_id, access_token=access_token,
+                                                 graph_version=graph_version)
+                    if isinstance(res, dict):
+                        sent_mid = res.get("message_id", "")
+                except Exception as e:
+                    request.session["send_error"] = f"Failed to send Messenger message: {str(e)}"
+
             user_email = str(messenger_page_id) if channel == "messenger" else (session_email or "")
-            Message.objects.create(channel=channel, contact=contact, direction="out", text=text, is_read=True, user_email=user_email)
+            target_psid = thread.exclude(contact_id="").values_list("contact_id", flat=True).last() if channel == "messenger" else ""
+            Message.objects.create(
+                channel=channel,
+                contact=contact,
+                contact_id=target_psid or "",
+                direction="out",
+                text=text,
+                message_id=sent_mid,
+                is_read=True,
+                user_email=user_email,
+            )
             return redirect("conversation", channel=channel, contact=contact)
     thread.filter(direction="in", is_read=False).update(is_read=True)  # mark read on open
-    
+
     return render(request, "conversation.html", {
         "thread": thread,
         "channel": channel,
         "channel_name": dict(Message.CHANNELS).get(channel, channel),
         "contact": contact,
         "current_email": _session_user_label(request),
+        "send_error": send_error,
     })
 
 
@@ -293,7 +314,7 @@ def messenger_webhook(request):
                 message_data = event.get("message", {})
                 if message_data.get("is_echo"):
                     continue  # our own outgoing message echoed back by Meta
-                sender_id = event.get("sender", {}).get("id")
+                sender_id = str(event.get("sender", {}).get("id") or "")
                 text = message_data.get("text", "")
                 if not sender_id or not text:
                     continue  # deliveries, read receipts, postbacks, attachments, ...
@@ -302,15 +323,39 @@ def messenger_webhook(request):
                                                          message_id=message_id).exists():
                     continue  # Meta may redeliver; skip already-stored messages
 
-                Message.objects.create(
-                    channel="messenger",
-                    contact=sender_id,
-                    direction="in",
-                    subject="",
-                    text=text,
-                    message_id=message_id,
-                    user_email=page_id,  # belongs to the Page that received it
-                )
+                # Webhook events carry a millisecond epoch timestamp — convert it
+                # to a proper datetime so messages are ordered by actual send time.
+                from datetime import datetime, timezone as dt_timezone
+                raw_ts = event.get("timestamp")
+                try:
+                    sent_at = datetime.fromtimestamp(int(raw_ts) / 1000, tz=dt_timezone.utc)
+                except (TypeError, ValueError, OSError):
+                    from django.utils import timezone
+                    sent_at = timezone.now()
+
+                target_psid = sender_id
+                direction = "in"
+
+                base = f"https://graph.facebook.com/{messenger.GRAPH_VERSION or messenger.DEFAULT_GRAPH_VERSION}"
+                headers = {"Authorization": f"Bearer {messenger._PAGE_ACCESS_TOKEN()}"}
+                contact_name = messenger._fetch_user_name(target_psid, headers, base, {}) or target_psid
+
+                try:
+                    Message.objects.create(
+                        channel="messenger",
+                        contact=contact_name,
+                        contact_id=target_psid,
+                        direction=direction,
+                        subject="",
+                        text=text,
+                        message_id=message_id,
+                        user_email=page_id,
+                        created_at=sent_at,
+                        is_read=False,
+                    )
+                except IntegrityError:
+                    # A concurrent webhook delivery won the insert race.
+                    continue
 
         return JsonResponse({"status": "ok"})
 
