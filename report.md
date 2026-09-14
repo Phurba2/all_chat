@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-**All_Chat** is a Django-based unified messaging platform designed to consolidate messages from multiple social media and communication channels (WhatsApp, Messenger, Gmail) into a single dashboard. The project aims to reduce context-switching by providing a centralized inbox for all social media chat messages.
+**All_Chat** is a Django-based unified messaging platform designed to consolidate messages from multiple social media and communication channels (WhatsApp, Messenger, Gmail) into a single dashboard.
 
 ---
 
@@ -68,8 +68,8 @@ The repository is composed of the following programming languages:
 
 | Language | Percentage | Type |
 |----------|-----------|------|
-| **Python** | 87.4% | Primary Language |
-| **HTML** | 12.6% | Templates |
+| **Python** | 84.6% | Primary Language |
+| **HTML** | 15.4% | Templates |
 
 **Primary Language:** Python (Django Framework)
 
