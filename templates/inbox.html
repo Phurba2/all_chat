@@ -111,10 +111,6 @@
 
     <div class="conv-body">
       <div class="conv-name">{{ c.contact }}</div>
-      <div class="conv-preview {% if c.unread %}unread{% endif %}">
-        {% if c.last.direction == "out" %}<span style="color:#636366;">You: </span>{% endif %}
-        {{ c.last.text|truncatechars:50 }}
-      </div>
     </div>
 
     <div class="conv-right">
