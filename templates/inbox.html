@@ -95,12 +95,6 @@
   .empty { text-align: center; color: #636366; margin-top: 40px; }
 </style>
 
-{% if setup_message %}
-<div style="background:#2c2c2e;border:1px solid #3a3a3c;border-radius:8px;padding:12px;margin-bottom:16px;text-align:center;color:#30d158;">
-  {{ setup_message }}
-</div>
-{% endif %}
-
 <nav class="channel-nav">
   {% for key, label in channels %}
     <a href="{% url 'channel' key %}" {% if current == key %}class="active"{% endif %}>{{ label }}</a>

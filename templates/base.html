@@ -89,14 +89,6 @@ a:hover {
 </style>
 </head>
 <body>
-{% if current_email %}
-<header>
-    <div class="user-info">
-        <span class="user-email">{{ current_email }}</span>
-    </div>
-    <a href="{% url 'logout' %}" class="logout-btn">Logout</a>
-</header>
-{% endif %}
 <main>
     {% block content %}{% endblock %}
 </main>

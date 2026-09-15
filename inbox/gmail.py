@@ -15,10 +15,13 @@ IMAP_HOST = "imap.gmail.com"
 SMTP_HOST = "smtp.gmail.com"
 
 
-def is_configured(email=None, password=None):
-    if email and password:
-        return True
-    return bool(os.environ.get("GMAIL_EMAIL") and os.environ.get("GMAIL_APP_PASSWORD"))
+def _credentials():
+    return os.environ.get("GMAIL_EMAIL"), os.environ.get("GMAIL_APP_PASSWORD")
+
+
+def is_configured():
+    email, password = _credentials()
+    return bool(email and password)
 
 
 def _decode(value):
@@ -26,7 +29,8 @@ def _decode(value):
         return ""
     return "".join(
         p.decode(charset or "utf-8", "replace") if isinstance(p, bytes) else p
-        for p, charset in decode_header(value)  )
+        for p, charset in decode_header(value)
+    )
 
 
 def _get_body(email):
@@ -45,15 +49,11 @@ def _get_body(email):
     return payload.decode(email.get_content_charset() or "utf-8", "replace").strip()
 
 
-def fetch_emails(email=None, password=None, user_email=None):
-    if not is_configured(email, password):
-        raise RuntimeError("Set Email and Password first.")
+def fetch_emails():
+    if not is_configured():
+        raise RuntimeError("Set GMAIL_EMAIL and GMAIL_APP_PASSWORD first.")
 
-    # Use provided credentials or fall back to environment variables
-    email = email or os.environ.get("GMAIL_EMAIL")
-    password = password or os.environ.get("GMAIL_APP_PASSWORD")
-    user_email = user_email or email  # Default to current email if not specified
-
+    email, password = _credentials()
     mail = imaplib.IMAP4_SSL(IMAP_HOST)
     try:
         mail.login(email, password)
@@ -61,24 +61,20 @@ def fetch_emails(email=None, password=None, user_email=None):
         _, data = mail.search(None, "ALL")
         all_ids = data[0].split()
         new = 0
-        
-        # Fetch a bounded recent window so one old mailbox cannot make setup slow.
+
         for uid in reversed(all_ids[-50:]):
             if new >= 10:
                 break
-                
+
             _, msg = mail.fetch(uid, "(BODY[])")
             email_msg = message_from_bytes(msg[0][1])
             message_id = _decode(email_msg.get("Message-ID", "")).strip()
 
-            # Skip if already exists in database for this user
-            if message_id and Message.objects.filter(message_id=message_id, user_email=user_email).exists():
+            if message_id and Message.objects.filter(message_id=message_id, user_email=email).exists():
                 continue
 
             body = _get_body(email_msg)
-
             summary = summarize_message(body)
-            
             name, address = parseaddr(_decode(email_msg.get("From", "")))
 
             Message.objects.create(
@@ -89,7 +85,7 @@ def fetch_emails(email=None, password=None, user_email=None):
                 text=body,
                 message_id=message_id,
                 summary=summary,
-                user_email=user_email,  # Store which user this message belongs to
+                user_email=email,
             )
             new += 1
 
@@ -98,15 +94,11 @@ def fetch_emails(email=None, password=None, user_email=None):
         mail.logout()
 
 
-def send_reply(to, body, subject="", in_reply_to=None, email=None, password=None):
-    """Send an email reply via SMTP."""
-    if not is_configured(email, password):
+def send_reply(to, body, subject="", in_reply_to=None):
+    if not is_configured():
         raise RuntimeError("Email credentials not configured.")
 
-    # Use provided credentials or fall back to environment variables
-    email = email or os.environ.get("GMAIL_EMAIL")
-    password = password or os.environ.get("GMAIL_APP_PASSWORD")
-
+    email, password = _credentials()
     msg = EmailMessage()
     msg["From"] = email
     msg["To"] = to

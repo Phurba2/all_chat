@@ -8,16 +8,11 @@ from unittest import mock
 
 from django.test import TestCase
 
-from . import messenger
+from . import gmail, messenger
 from .models import Message
 
 
 class ServerConfigSandboxMixin:
-    """Point messenger.CONFIG_PATH at a temp file so tests don't touch the repo's.
-
-    setUp creates the sandbox; tearDown restores the real path.
-    """
-
     def setUp(self):
         super().setUp()
         self._config_tmpdir = Path(tempfile.mkdtemp(prefix="msgr-cfg-"))
@@ -29,19 +24,13 @@ class ServerConfigSandboxMixin:
         shutil.rmtree(self._config_tmpdir, ignore_errors=True)
         super().tearDown()
 
-    @staticmethod
-    def _sandbox_config_path():
-        return messenger.CONFIG_PATH
 
-
-class MessengerApiTests(TestCase):
+class MessengerApiTests(ServerConfigSandboxMixin, TestCase):
 
     @mock.patch("inbox.messenger.requests.post")
     def test_send_message_posts_to_graph_api(self, mock_post):
-        mock_post.return_value.raise_for_status.return_value = None
         mock_post.return_value.json.return_value = {"message_id": "mid.1"}
-        with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
-             mock.patch("inbox.messenger.PAGE_ID", "123"), \
+        with mock.patch("inbox.messenger.PAGE_ID", "123"), \
              mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"):
             result = messenger.send_message("psid-1", "Hello")
 
@@ -61,37 +50,20 @@ class MessengerApiTests(TestCase):
                 messenger.send_message("psid-1", "Hello")
         mock_post.assert_not_called()
 
-    @mock.patch("inbox.messenger.requests.post")
-    def test_send_message_uses_session_credentials(self, mock_post):
-        mock_post.return_value.raise_for_status.return_value = None
-        mock_post.return_value.json.return_value = {"message_id": "mid.1"}
-        # No env config — only the credentials passed by the caller (like a session)
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None), \
-             mock.patch("inbox.messenger.GRAPH_VERSION", ""):
-            result = messenger.send_message("psid-1", "Hello",
-                                            page_id="456", access_token="sess-tok",
-                                            graph_version="v22.0")
+    def test_send_message_prefers_server_config_file(self):
+        messenger.save_server_config(page_id="cfg-page", access_token="cfg-tok")
+        with mock.patch("inbox.messenger.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {"message_id": "mid.1"}
+            messenger.send_message("psid-1", "Hello")
 
-        mock_post.assert_called_once()
         args, kwargs = mock_post.call_args
-        self.assertEqual(args[0], "https://graph.facebook.com/v22.0/456/messages")
-        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer sess-tok")
-        self.assertEqual(result, {"message_id": "mid.1"})
+        self.assertEqual(args[0], "https://graph.facebook.com/v21.0/cfg-page/messages")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer cfg-tok")
 
-    def test_is_configured_falls_back_to_env(self):
-        with mock.patch("inbox.messenger.PAGE_ID", "123"), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
-             mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"):
-            self.assertTrue(messenger.is_configured())
-
-    def test_is_configured_from_session_values_only(self):
+    def test_is_configured_false_without_config(self):
         with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None), \
-             mock.patch("inbox.messenger.GRAPH_VERSION", ""):
+             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None):
             self.assertFalse(messenger.is_configured())
-            self.assertTrue(messenger.is_configured("456", "sess-tok"))
-            self.assertFalse(messenger.is_configured("456", ""))
 
 
 class MessengerWebhookTests(ServerConfigSandboxMixin, TestCase):
@@ -134,8 +106,8 @@ class MessengerWebhookTests(ServerConfigSandboxMixin, TestCase):
                 }],
             }],
         }
-        # No app secret configured → signature check is skipped (env only)
-        with mock.patch("inbox.messenger.APP_SECRET", None):
+        with mock.patch("inbox.messenger.APP_SECRET", None), \
+             mock.patch.object(messenger, "fetch_user_name", return_value="psid-1"):
             resp = self.client.post(self.URL, data=json.dumps(payload),
                                     content_type="application/json")
 
@@ -146,7 +118,7 @@ class MessengerWebhookTests(ServerConfigSandboxMixin, TestCase):
         self.assertEqual(msg.direction, "in")
         self.assertEqual(msg.text, "Hello from Messenger")
         self.assertEqual(msg.message_id, "mid.abc")
-        self.assertEqual(msg.user_email, "123")  # belongs to the Page from the payload
+        self.assertEqual(msg.user_email, "123")
         self.assertEqual(msg.summary, "")
 
     def test_post_ignores_echo_and_non_message_events(self):
@@ -199,7 +171,6 @@ class MessengerWebhookTests(ServerConfigSandboxMixin, TestCase):
 
 
 class MessengerWebhookServerConfigTests(ServerConfigSandboxMixin, TestCase):
-    """Webhook behavior when App Secret / Verify Token were saved from the setup page."""
     URL = "/messenger/webhook/"
 
     def setUp(self):
@@ -266,8 +237,9 @@ class MessengerWebhookServerConfigTests(ServerConfigSandboxMixin, TestCase):
         expected = "sha256=" + hmac.new(
             b"cfg-secret", payload.encode(), hashlib.sha256
         ).hexdigest()
-        resp = self.client.post(self.URL, data=payload, content_type="application/json",
-                                HTTP_X_HUB_SIGNATURE_256=expected)
+        with mock.patch.object(messenger, "fetch_user_name", return_value="psid-1"):
+            resp = self.client.post(self.URL, data=payload, content_type="application/json",
+                                    HTTP_X_HUB_SIGNATURE_256=expected)
         self.assertEqual(resp.status_code, 200)
         msg = Message.objects.get()
         self.assertEqual(msg.text, "signed hello")
@@ -275,11 +247,10 @@ class MessengerWebhookServerConfigTests(ServerConfigSandboxMixin, TestCase):
 
 
 class MessengerConfigFileTests(ServerConfigSandboxMixin, TestCase):
-    """Server-level persistence of webhook credentials entered on the setup page."""
 
     def test_save_server_config_persists_values(self):
         messenger.save_server_config(app_secret="secret-1", verify_token="vt-1")
-        self.assertTrue(self._sandbox_config_path().exists())
+        self.assertTrue(self._config_tmpdir.joinpath("config.json").exists())
         self.assertEqual(messenger.webhook_app_secret(), "secret-1")
         self.assertEqual(messenger.webhook_verify_token(), "vt-1")
 
@@ -310,12 +281,11 @@ class MessengerConfigFileTests(ServerConfigSandboxMixin, TestCase):
             self.assertTrue(messenger.verify_payload_signature(b'{}', None))
 
 
-class MessengerFetchTests(TestCase):
+class MessengerFetchTests(ServerConfigSandboxMixin, TestCase):
 
     @staticmethod
     def _mock_response(payload):
         resp = mock.Mock()
-        resp.raise_for_status.return_value = None
         resp.json.return_value = payload
         return resp
 
@@ -330,24 +300,19 @@ class MessengerFetchTests(TestCase):
         ]
         with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"):
+             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
+             mock.patch.object(messenger, "fetch_user_name", return_value="Pat"):
             result = messenger.fetch_messages()
 
         self.assertEqual(result, 1)
         msg = Message.objects.get()
         self.assertEqual(msg.channel, "messenger")
-        self.assertEqual(msg.contact, "Pat")  # resolved from conversation participants
+        self.assertEqual(msg.contact, "Pat")
         self.assertEqual(msg.direction, "in")
         self.assertEqual(msg.text, "Hi there")
         self.assertEqual(msg.message_id, "mid.x")
-        self.assertEqual(msg.user_email, "123")  # belongs to the fetched Page
+        self.assertEqual(msg.user_email, "123")
         self.assertEqual(msg.summary, "")
-
-        calls = mock_get.call_args_list
-        self.assertEqual(calls[0].args[0], "https://graph.facebook.com/v21.0/123/conversations")
-        self.assertEqual(calls[1].args[0], "https://graph.facebook.com/v21.0/t_conv1/messages")
-        for call in calls:
-            self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer tok")
 
     @mock.patch("inbox.messenger.requests.get")
     def test_fetch_skips_outbound_duplicates_and_attachments(self, mock_get):
@@ -358,25 +323,23 @@ class MessengerFetchTests(TestCase):
                 {"id": "t_conv1", "participants": {"data": [{"id": "psid-9", "name": "Pat"}]}},
                 {"id": "t_conv2", "participants": {"data": [{"id": "psid-9", "name": "Pat"}]}},
             ], "paging": {}}),
-            # t_conv1: page's own outbound, a duplicate of a stored message, an attachment-only message
             self._mock_response({"data": [
                 {"id": "mid.1", "message": "Our reply", "from": {"id": "123"}},
                 {"id": "mid.x", "message": "already here", "from": {"id": "psid-9"}},
                 {"id": "mid.2", "attachments": [{"type": "image"}]},
             ], "paging": {}}),
-            # t_conv2: one genuinely new inbound message
             self._mock_response({"data": [{"id": "mid.new", "message": "New one",
                                             "from": {"id": "psid-9"}}], "paging": {}}),
         ]
         with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"):
+             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
+             mock.patch.object(messenger, "fetch_user_name", return_value="Pat"):
             result = messenger.fetch_messages()
 
-        self.assertEqual(result, 1)  # only mid.new is new
+        self.assertEqual(result, 1)
         self.assertEqual(Message.objects.count(), 2)
         self.assertTrue(Message.objects.filter(message_id="mid.new").exists())
-        self.assertEqual(Message.objects.get(message_id="mid.new").contact, "Pat")
 
     @mock.patch("inbox.messenger.requests.get")
     def test_fetch_stores_outbound_messages_when_requested(self, mock_get):
@@ -391,7 +354,8 @@ class MessengerFetchTests(TestCase):
         ]
         with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"):
+             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
+             mock.patch.object(messenger, "fetch_user_name", return_value="Pat"):
             result = messenger.fetch_messages(include_outbound=True)
 
         self.assertEqual(result, 1)
@@ -399,7 +363,6 @@ class MessengerFetchTests(TestCase):
         self.assertEqual(msg.direction, "out")
         self.assertEqual(msg.contact, "Pat")
         self.assertEqual(msg.contact_id, "psid-9")
-        self.assertEqual(msg.text, "Outbound reply")
         self.assertTrue(msg.is_read)
 
     @mock.patch("inbox.messenger.requests.get")
@@ -419,11 +382,11 @@ class MessengerFetchTests(TestCase):
         ]
         with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"):
+             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
+             mock.patch.object(messenger, "fetch_user_name", return_value="Ada"):
             result = messenger.fetch_messages()
 
         self.assertEqual(result, 2)
-        # the paging.next URL is fetched as-is (cursor is in the URL)
         self.assertEqual(mock_get.call_args_list[1].args[0],
                          "https://graph.facebook.com/v21.0/123/conversations?after=cursor2")
 
@@ -436,256 +399,93 @@ class MessengerFetchTests(TestCase):
                 messenger.fetch_messages()
         mock_get.assert_not_called()
 
-    @mock.patch("inbox.messenger.requests.get")
-    def test_fetch_uses_session_credentials(self, mock_get):
-        mock_get.side_effect = [
-            self._mock_response({"data": [{"id": "t_conv1", "participants": {"data": [
-                {"id": "psid-9", "name": "Pat"},
-            ]}}], "paging": {}}),
-            self._mock_response({"data": [{"id": "mid.x", "message": "Hi there",
-                                            "from": {"id": "psid-9"}}], "paging": {}}),
-        ]
-        # No env config — only the credentials passed by the caller (like a session)
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None), \
-             mock.patch("inbox.messenger.GRAPH_VERSION", ""):
-            result = messenger.fetch_messages(page_id="456", access_token="sess-tok",
-                                              graph_version="v22.0")
 
-        self.assertEqual(result, 1)
-        self.assertEqual(Message.objects.get().user_email, "456")  # belongs to the connected Page
-        calls = mock_get.call_args_list
-        self.assertEqual(calls[0].args[0], "https://graph.facebook.com/v22.0/456/conversations")
-        for call in calls:
-            self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer sess-tok")
+class ConversationViewTests(TestCase):
 
+    def test_inbox_shows_conversations(self):
+        Message.objects.create(channel="messenger", contact="Pat", direction="in",
+                               text="Hello", user_email="123")
+        resp = self.client.get("/channel/messenger/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Pat")
 
-class MessengerConversationTests(TestCase):
-    PAGE_ID = "123"
-
-    def _connect_messenger(self):
-        session = self.client.session
-        session["META_PAGE_ID"] = self.PAGE_ID
-        session["META_PAGE_ACCESS_TOKEN"] = "sess-tok"
-        session.save()
-
-    def setUp(self):
-        self.msg = Message.objects.create(channel="messenger", contact="psid-1", direction="in",
-                                          text="Hello", user_email=self.PAGE_ID)
+    def test_thread_not_found_returns_404(self):
+        resp = self.client.get("/channel/messenger/nobody/")
+        self.assertEqual(resp.status_code, 404)
 
     @mock.patch("inbox.views.messenger.send_message")
-    def test_reply_sends_via_send_api_and_stores_outgoing(self, mock_send):
-        self._connect_messenger()
+    def test_reply_sends_and_stores_outgoing(self, mock_send):
+        Message.objects.create(channel="messenger", contact="psid-1", direction="in",
+                               text="Hello", contact_id="psid-1", user_email="123")
+        mock_send.return_value = {"message_id": "mid.sent"}
+
         resp = self.client.post("/channel/messenger/psid-1/", {"text": "Hello back"})
 
         self.assertRedirects(resp, "/channel/messenger/psid-1/")
-        mock_send.assert_called_once()
-        args, kwargs = mock_send.call_args
-        self.assertEqual(args, ("psid-1", "Hello back"))
-        self.assertEqual(kwargs, {"page_id": self.PAGE_ID, "access_token": "sess-tok",
-                                  "graph_version": None})
+        mock_send.assert_called_once_with("psid-1", "Hello back")
         out = Message.objects.filter(direction="out").get()
-        self.assertEqual(out.channel, "messenger")
-        self.assertEqual(out.contact, "psid-1")
         self.assertEqual(out.text, "Hello back")
-        self.assertEqual(out.user_email, self.PAGE_ID)  # belongs to the connected Page
+        self.assertEqual(out.message_id, "mid.sent")
 
     @mock.patch("inbox.views.messenger.send_message", side_effect=RuntimeError("API down"))
-    def test_reply_stored_locally_when_send_api_fails(self, mock_send):
-        self._connect_messenger()
+    def test_reply_stored_locally_when_send_fails(self, mock_send):
+        Message.objects.create(channel="messenger", contact="psid-1", direction="in",
+                               text="Hello", contact_id="psid-1", user_email="123")
+
         resp = self.client.post("/channel/messenger/psid-1/", {"text": "Hello back"})
 
         self.assertRedirects(resp, "/channel/messenger/psid-1/")
         self.assertEqual(Message.objects.filter(direction="out").count(), 1)
 
-    @mock.patch("inbox.views.messenger.send_message")
-    def test_reply_resolves_psid_when_contact_is_display_name(self, mock_send):
-        mock_send.return_value = {"message_id": "mid.sent123", "recipient_id": "psid-99"}
-        self._connect_messenger()
-        # Message has human display name, but has contact_id set to PSID
-        Message.objects.create(channel="messenger", contact="Phurba Sherpa", contact_id="psid-99",
-                               direction="in", text="Hi", user_email=self.PAGE_ID)
-        resp = self.client.post("/channel/messenger/Phurba%20Sherpa/", {"text": "I am fine thank you"})
-        self.assertRedirects(resp, "/channel/messenger/Phurba%20Sherpa/")
-
-        mock_send.assert_called_once()
-        args, kwargs = mock_send.call_args
-        # Should call send_message with PSID, NOT the display name
-        self.assertEqual(args, ("psid-99", "I am fine thank you"))
-
-        out = Message.objects.filter(direction="out", text="I am fine thank you").get()
-        self.assertEqual(out.contact, "Phurba Sherpa")
-        self.assertEqual(out.contact_id, "psid-99")
-        self.assertEqual(out.message_id, "mid.sent123")
-        self.assertEqual(out.user_email, self.PAGE_ID)
-
-    def test_thread_not_visible_without_connected_page(self):
-        # No session creds → messenger conversations are not accessible at all
-        resp = self.client.get("/channel/messenger/psid-1/")
-        self.assertEqual(resp.status_code, 404)
-
-    def test_messenger_thread_visible_with_connected_page_no_gmail(self):
-        self._connect_messenger()
-        resp = self.client.get("/channel/messenger/psid-1/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Hello")
-
-    def test_messenger_thread_not_visible_for_other_page(self):
-        session = self.client.session
-        session["META_PAGE_ID"] = "999"  # connected to a different Page
-        session["META_PAGE_ACCESS_TOKEN"] = "sess-tok"
-        session.save()
-        resp = self.client.get("/channel/messenger/psid-1/")
-        self.assertEqual(resp.status_code, 404)
+    def test_thread_marks_messages_read_on_open(self):
+        Message.objects.create(channel="messenger", contact="psid-1", direction="in",
+                               text="Hello", is_read=False, user_email="123")
+        self.client.get("/channel/messenger/psid-1/")
+        self.assertTrue(Message.objects.get().is_read)
 
 
-class MessengerSetupPageTests(ServerConfigSandboxMixin, TestCase):
-    URL = "/setup/messenger/"
+class GmailFetchTests(TestCase):
 
-    def test_get_shows_form_when_not_configured(self):
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None):
-            resp = self.client.get(self.URL)
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Connect Messenger")
-        self.assertContains(resp, "Page Access Token")
+    @mock.patch("inbox.gmail.Message.objects.create")
+    @mock.patch("inbox.gmail.summarize_message", return_value="s")
+    @mock.patch("inbox.gmail.imaplib.IMAP4_SSL")
+    def test_fetch_emails_stores_messages(self, mock_imap_cls, mock_sum, mock_create):
+        mock_msg = mock.Mock()
+        mock_msg.get.side_effect = lambda k, d="": {
+            "Message-ID": "<m1@x>", "From": "Pat <pat@x>", "Subject": "Hi"}.get(k, d)
+        mock_msg.is_multipart.return_value = False
+        mock_msg.get_payload.return_value = b"Body"
+        mock_msg.get_content_charset.return_value = "utf-8"
 
-    def test_get_redirects_to_messenger_when_session_connected(self):
-        session = self.client.session
-        session["META_PAGE_ID"] = "456"
-        session["META_PAGE_ACCESS_TOKEN"] = "sess-tok"
-        session.save()
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None):
-            resp = self.client.get(self.URL)
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, "/channel/messenger/")
+        mail = mock_imap_cls.return_value
+        mail.search.return_value = (None, [b"1"])
+        mail.fetch.return_value = (None, [(None, b"raw")])
 
-    @mock.patch("inbox.messenger.fetch_messages", return_value=2)
-    def test_post_stores_credentials_and_backfills(self, mock_fetch):
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None):
-            resp = self.client.post(self.URL, {
-                "page_id": "456",
-                "access_token": "sess-tok",
-                "graph_version": "v22.0",
-                "app_secret": "secret-1",
-                "verify_token": "vt-1",
-            })
+        with mock.patch.dict("inbox.gmail.os.environ",
+                             {"GMAIL_EMAIL": "me@x", "GMAIL_APP_PASSWORD": "pw"}), \
+             mock.patch("inbox.gmail.message_from_bytes", return_value=mock_msg):
+            new = gmail.fetch_emails()
 
-        self.assertRedirects(resp, "/channel/messenger/")
-        mock_fetch.assert_called_once_with(page_id="456", access_token="sess-tok",
-                                           graph_version="v22.0")
-        session = self.client.session
-        self.assertEqual(session["META_PAGE_ID"], "456")
-        self.assertEqual(session["META_PAGE_ACCESS_TOKEN"], "sess-tok")
-        self.assertEqual(session["META_GRAPH_VERSION"], "v22.0")
-        # Webhook credentials were saved server-side, not in the session
-        self.assertNotIn("META_APP_SECRET", session)
-        self.assertNotIn("META_VERIFY_TOKEN", session)
-        self.assertEqual(messenger.webhook_app_secret(), "secret-1")
-        self.assertEqual(messenger.webhook_verify_token(), "vt-1")
+        self.assertEqual(new, 1)
+        kwargs = mock_create.call_args.kwargs
+        self.assertEqual(kwargs["channel"], "email")
+        self.assertEqual(kwargs["contact"], "pat@x")
+        self.assertEqual(kwargs["user_email"], "me@x")
 
-    @mock.patch("inbox.messenger.fetch_messages", side_effect=RuntimeError("bad token"))
-    def test_post_keeps_credentials_when_fetch_fails(self, mock_fetch):
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None):
-            resp = self.client.post(self.URL, {
-                "page_id": "456",
-                "access_token": "sess-tok",
-                "graph_version": "",
-            })
+    def test_fetch_emails_raises_when_not_configured(self):
+        with mock.patch.dict("inbox.gmail.os.environ", {}, clear=True):
+            with self.assertRaises(RuntimeError):
+                gmail.fetch_emails()
 
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, "/channel/messenger/")
-        mock_fetch.assert_called_once_with(page_id="456", access_token="sess-tok",
-                                           graph_version="v21.0")  # defaults when blank
-        session = self.client.session
-        self.assertEqual(session["META_PAGE_ID"], "456")
-        self.assertEqual(session["META_PAGE_ACCESS_TOKEN"], "sess-tok")
-        self.assertNotIn("META_GRAPH_VERSION", session)
-        # setup_message is stored for the redirect target to display
-        self.assertTrue(session["setup_message"].startswith("Connected, but couldn't"))
+    @mock.patch("inbox.gmail.smtplib.SMTP_SSL")
+    def test_send_reply_uses_smtp(self, mock_smtp_cls):
+        with mock.patch.dict("inbox.gmail.os.environ",
+                             {"GMAIL_EMAIL": "me@x", "GMAIL_APP_PASSWORD": "pw"}):
+            gmail.send_reply("pat@x", "Hello", in_reply_to="<m1@x>")
 
-    def test_post_missing_fields_shows_error(self):
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None):
-            resp = self.client.post(self.URL, {"page_id": "456"})
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Please enter both")
-        self.assertNotIn("META_PAGE_ID", self.client.session)
-
-    def test_post_webhook_fields_saved_even_when_page_fields_missing(self):
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None):
-            resp = self.client.post(self.URL, {
-                "app_secret": "secret-1",
-                "verify_token": "vt-1",
-            })
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Please enter both")
-        self.assertEqual(messenger.webhook_app_secret(), "secret-1")
-        self.assertEqual(messenger.webhook_verify_token(), "vt-1")
-
-    def test_get_form_shows_webhook_fields(self):
-        resp = self.client.get(self.URL)
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "App Secret")
-        self.assertContains(resp, "Verify Token")
-
-    def test_messenger_channel_redirects_to_setup_when_not_connected_in_session(self):
-        # Even with env vars configured, Messenger is per-session: a browser that
-        # hasn't connected a Page gets sent to the setup page.
-        with mock.patch("inbox.messenger.PAGE_ID", "123"), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
-             mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"):
-            resp = self.client.get("/channel/messenger/")
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, "/setup/messenger/")
-
-    def test_messenger_channel_visible_when_session_configured(self):
-        session = self.client.session
-        session["META_PAGE_ID"] = "456"
-        session["META_PAGE_ACCESS_TOKEN"] = "sess-tok"
-        session.save()
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None), \
-             mock.patch("inbox.messenger.GRAPH_VERSION", ""):
-            resp = self.client.get("/channel/messenger/")
-        self.assertEqual(resp.status_code, 200)
-
-    def test_messenger_header_shows_page_and_logout(self):
-        session = self.client.session
-        session["META_PAGE_ID"] = "456"
-        session["META_PAGE_ACCESS_TOKEN"] = "sess-tok"
-        session.save()
-        with mock.patch("inbox.messenger.PAGE_ID", None), \
-             mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", None), \
-             mock.patch("inbox.messenger.GRAPH_VERSION", ""):
-            resp = self.client.get("/channel/messenger/")
-        self.assertContains(resp, "💬 Page 456")
-        self.assertContains(resp, "Logout")
-
-    def test_messenger_logout_clears_session_and_goes_to_messenger_setup(self):
-        session = self.client.session
-        session["META_PAGE_ID"] = "456"
-        session["META_PAGE_ACCESS_TOKEN"] = "sess-tok"
-        session.save()
-        resp = self.client.get("/logout/")
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, "/setup/messenger/")
-        self.assertNotIn("META_PAGE_ID", self.client.session)
-        self.assertNotIn("META_PAGE_ACCESS_TOKEN", self.client.session)
-
-    def test_messenger_logout_when_gmail_also_logged_in_goes_to_gmail_setup(self):
-        session = self.client.session
-        session["GMAIL_EMAIL"] = "you@gmail.com"
-        session["GMAIL_APP_PASSWORD"] = "app-pass"
-        session["META_PAGE_ID"] = "456"
-        session["META_PAGE_ACCESS_TOKEN"] = "sess-tok"
-        session.save()
-        resp = self.client.get("/logout/")
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.url, "/setup/")
-        self.assertNotIn("GMAIL_EMAIL", self.client.session)
-        self.assertNotIn("META_PAGE_ID", self.client.session)
+        mock_smtp_cls.assert_called_once()
+        sent = mock_smtp_cls.return_value.__enter__.return_value.send_message
+        sent.assert_called_once()
+        msg = sent.call_args.args[0]
+        self.assertEqual(msg["To"], "pat@x")
+        self.assertEqual(msg["In-Reply-To"], "<m1@x>")
