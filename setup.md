@@ -83,7 +83,7 @@ META_PAGE_ID=your-page-id
 META_PAGE_ACCESS_TOKEN=your-page-access-token
 META_APP_SECRET=your-app-secret
 META_VERIFY_TOKEN=a-string-you-invent
-META_GRAPH_VERSION=v21.0
+META_GRAPH_VERSION=v26.0
 ```
 
 Start the server:

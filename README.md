@@ -33,7 +33,7 @@ export META_PAGE_ID=your-page-id
 export META_PAGE_ACCESS_TOKEN=your-page-access-token
 export META_APP_SECRET=your-app-secret
 export META_VERIFY_TOKEN=something-you-create
-export META_GRAPH_VERSION=v21.0
+export META_GRAPH_VERSION=v26.0
 ```
 
 Messenger credentials can also be stored in a gitignored `messenger_server_config.json` (saved values take precedence over env vars).

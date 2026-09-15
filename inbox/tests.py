@@ -36,7 +36,7 @@ class MessengerApiTests(ServerConfigSandboxMixin, TestCase):
 
         mock_post.assert_called_once()
         args, kwargs = mock_post.call_args
-        self.assertEqual(args[0], "https://graph.facebook.com/v21.0/123/messages")
+        self.assertEqual(args[0], "https://graph.facebook.com/v26.0/123/messages")
         self.assertEqual(kwargs["json"], {"recipient": {"id": "psid-1"}, "message": {"text": "Hello"}})
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer tok")
         self.assertEqual(result, {"message_id": "mid.1"})
@@ -57,7 +57,7 @@ class MessengerApiTests(ServerConfigSandboxMixin, TestCase):
             messenger.send_message("psid-1", "Hello")
 
         args, kwargs = mock_post.call_args
-        self.assertEqual(args[0], "https://graph.facebook.com/v21.0/cfg-page/messages")
+        self.assertEqual(args[0], "https://graph.facebook.com/v26.0/cfg-page/messages")
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer cfg-tok")
 
     def test_is_configured_false_without_config(self):
@@ -298,7 +298,7 @@ class MessengerFetchTests(ServerConfigSandboxMixin, TestCase):
             self._mock_response({"data": [{"id": "mid.x", "message": "Hi there",
                                             "from": {"id": "psid-9"}}], "paging": {}}),
         ]
-        with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
+        with mock.patch("inbox.messenger.GRAPH_VERSION", "v26.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
              mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
              mock.patch.object(messenger, "fetch_user_name", return_value="Pat"):
@@ -331,7 +331,7 @@ class MessengerFetchTests(ServerConfigSandboxMixin, TestCase):
             self._mock_response({"data": [{"id": "mid.new", "message": "New one",
                                             "from": {"id": "psid-9"}}], "paging": {}}),
         ]
-        with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
+        with mock.patch("inbox.messenger.GRAPH_VERSION", "v26.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
              mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
              mock.patch.object(messenger, "fetch_user_name", return_value="Pat"):
@@ -352,7 +352,7 @@ class MessengerFetchTests(ServerConfigSandboxMixin, TestCase):
                  "to": {"data": [{"id": "psid-9", "name": "Pat"}]}},
             ], "paging": {}}),
         ]
-        with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
+        with mock.patch("inbox.messenger.GRAPH_VERSION", "v26.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
              mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
              mock.patch.object(messenger, "fetch_user_name", return_value="Pat"):
@@ -371,7 +371,7 @@ class MessengerFetchTests(ServerConfigSandboxMixin, TestCase):
             self._mock_response({"data": [{"id": "t_1", "participants": {"data": [
                 {"id": "psid-1", "name": "Ada"},
             ]}}],
-                                 "paging": {"next": "https://graph.facebook.com/v21.0/123/conversations?after=cursor2"}}),
+                                 "paging": {"next": "https://graph.facebook.com/v26.0/123/conversations?after=cursor2"}}),
             self._mock_response({"data": [{"id": "t_2", "participants": {"data": [
                 {"id": "psid-2", "name": "Bob"},
             ]}}], "paging": {}}),
@@ -380,7 +380,7 @@ class MessengerFetchTests(ServerConfigSandboxMixin, TestCase):
             self._mock_response({"data": [{"id": "mid.b", "message": "from t2",
                                             "from": {"id": "psid-2"}}], "paging": {}}),
         ]
-        with mock.patch("inbox.messenger.GRAPH_VERSION", "v21.0"), \
+        with mock.patch("inbox.messenger.GRAPH_VERSION", "v26.0"), \
              mock.patch("inbox.messenger.PAGE_ID", "123"), \
              mock.patch("inbox.messenger.PAGE_ACCESS_TOKEN", "tok"), \
              mock.patch.object(messenger, "fetch_user_name", return_value="Ada"):
@@ -388,7 +388,7 @@ class MessengerFetchTests(ServerConfigSandboxMixin, TestCase):
 
         self.assertEqual(result, 2)
         self.assertEqual(mock_get.call_args_list[1].args[0],
-                         "https://graph.facebook.com/v21.0/123/conversations?after=cursor2")
+                         "https://graph.facebook.com/v26.0/123/conversations?after=cursor2")
 
     @mock.patch("inbox.messenger.requests.get")
     def test_fetch_raises_when_not_configured(self, mock_get):

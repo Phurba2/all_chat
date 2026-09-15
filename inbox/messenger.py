@@ -38,7 +38,7 @@ APP_SECRET = None
 VERIFY_TOKEN = None
 GRAPH_VERSION = None
 
-DEFAULT_GRAPH_VERSION = "v21.0"
+DEFAULT_GRAPH_VERSION = "v26.0"
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "messenger_server_config.json"
 
