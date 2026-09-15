@@ -2,6 +2,8 @@
 
 A minimal Django app that pulls Gmail and Facebook Messenger messages into a single dashboard.
 
+> 📖 Full step-by-step setup instructions (Gmail app passwords, Meta app, webhook, automation) are in **[setup.md](setup.md)**.
+
 ## Quickstart
 
 ```bash
