@@ -9,6 +9,7 @@ Detailed setup instructions for **all_chat** (Unified Inbox): a Django app that 
 - [Step 1 — Install and Run](#step-1--install-and-run)
 - [Step 2 — Gmail Setup](#step-2--gmail-setup)
 - [Step 3 — Messenger Setup](#step-3--messenger-setup)
+- [Step 3b — WhatsApp Setup](#step-3b--whatsapp-setup)
 - [Step 4 — Automate Fetching](#step-4--automate-fetching)
 - [Step 5 — Use the App](#step-5--use-the-app)
 - [Troubleshooting](#troubleshooting)
@@ -22,11 +23,12 @@ flowchart LR
     subgraph Sources
         G["Gmail<br/>(IMAP + SMTP)"]
         M["Meta Graph API<br/>(Messenger)"]
+        W["WhatsApp Cloud API<br/>(Graph API)"]
     end
 
     subgraph all_chat["all_chat (Django)"]
         SCH["Scheduler<br/>fetch_all / run_scheduler"]
-        WH["Webhook endpoint<br/>/messenger/webhook/"]
+        WH["Webhook endpoints<br/>/messenger/webhook/<br/>/whatsapp/webhook/"]
         DB[("SQLite<br/>Message model")]
         O["Ollama<br/>llama3.2:3b<br/>summaries"]
         UI["Browser UI<br/>/channel/..."]
@@ -36,6 +38,7 @@ flowchart LR
     G -->|"IMAP fetch"| SCH
     M -->|"Graph API backfill"| SCH
     M -->|"push events"| WH
+    W -->|"push events"| WH
     SCH --> DB
     WH --> DB
     DB --> O
@@ -84,6 +87,13 @@ META_PAGE_ACCESS_TOKEN=your-page-access-token
 META_APP_SECRET=your-app-secret
 META_VERIFY_TOKEN=a-string-you-invent
 META_GRAPH_VERSION=v26.0
+
+# WhatsApp Cloud API
+WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
+WHATSAPP_ACCESS_TOKEN=your-access-token
+WHATSAPP_APP_SECRET=your-app-secret
+WHATSAPP_VERIFY_TOKEN=a-string-you-invent
+WHATSAPP_GRAPH_VERSION=v26.0
 ```
 
 Start the server:
@@ -232,6 +242,83 @@ The webhook only delivers *new* events. To import recent history:
 
 Safe to repeat — stored message IDs are skipped.
 
+## Step 3b — WhatsApp Setup
+
+WhatsApp works through the **WhatsApp Cloud API**: Meta pushes incoming messages to the webhook, and replies go out through the same Graph API. No polling/backfill exists for WhatsApp — the webhook is the only receive path.
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Meta as Meta App Dashboard
+    participant App as all_chat
+
+    You->>Meta: add WhatsApp product to app
+    You->>Meta: add + verify a business phone number
+    You->>App: put WHATSAPP_PHONE_NUMBER_ID /<br/>WHATSAPP_ACCESS_TOKEN / WHATSAPP_APP_SECRET /<br/>WHATSAPP_VERIFY_TOKEN in .env
+    You->>Meta: register webhook URL + verify token
+    Meta->>App: GET /whatsapp/webhook/ (hub.challenge)
+    App-->>Meta: challenge echoed → verified
+    Meta->>App: POST message events (signed)
+    App->>App: verify X-Hub-Signature-256, store message
+```
+
+### 3b.1 Get Cloud API credentials
+
+1. In your Meta app at [developers.facebook.com/apps](https://developers.facebook.com/apps), add the **WhatsApp** product.
+2. In WhatsApp → **API Setup**, Meta provisions a test number (or add your own business phone number and verify it by SMS/voice).
+3. Note down:
+   - `WHATSAPP_PHONE_NUMBER_ID` — the **Phone number ID** (not the display number)
+   - `WHATSAPP_ACCESS_TOKEN` — a permanent System User token with `whatsapp_business_messaging` + `whatsapp_business_management` (the temporary token on the API Setup page works for testing)
+   - `WHATSAPP_APP_SECRET` — App settings → Basic
+   - `WHATSAPP_VERIFY_TOKEN` — any string you invent; both sides must match
+4. To chat beyond the 5 test recipients, complete Business Verification and attach the app to your WhatsApp Business Account.
+
+### 3b.2 Store credentials
+
+Either in `.env` (shown above) or in a gitignored `whatsapp_server_config.json` — values saved there take precedence over env vars:
+
+```json
+{
+  "WHATSAPP_PHONE_NUMBER_ID": "106540352242922",
+  "WHATSAPP_ACCESS_TOKEN": "EAAG...",
+  "WHATSAPP_APP_SECRET": "abc123...",
+  "WHATSAPP_VERIFY_TOKEN": "my-verify-token"
+}
+```
+
+### 3b.3 Register the webhook
+
+In the Meta app → WhatsApp → **Configuration** (Webhooks):
+
+- **Callback URL**: `https://<your-domain>/whatsapp/webhook/`
+- **Verify token**: the exact `WHATSAPP_VERIFY_TOKEN` value
+- Subscribe to the **messages** field.
+
+Meta then verifies ownership and starts pushing events:
+
+```mermaid
+sequenceDiagram
+    participant Meta
+    participant App as all_chat webhook
+
+    Meta->>App: GET /whatsapp/webhook/?hub.challenge=...
+    App->>App: compare hub.verify_token to configured token
+    App-->>Meta: 200 + challenge (or 403)
+
+    Meta->>App: POST event + X-Hub-Signature-256
+    App->>App: HMAC-SHA256(body, app secret) matches?
+    alt valid
+        App->>App: dedupe by wamid, store inbound text message
+        App-->>Meta: 200 {"status": "ok"}
+    else invalid
+        App-->>Meta: 403
+    end
+```
+
+Note: WhatsApp delivers send receipts (`statuses` array) on the same webhook — the app ignores those. Non-text messages (images, voice, documents) are ignored too.
+
+During the Cloud API test period you can only message the verified test numbers; recipients must first send you a message (you can only free-reply within a 24-hour customer service window).
+
 ## Step 4 — Automate Fetching
 
 Two ways to keep the inbox current:
@@ -242,7 +329,7 @@ Two ways to keep the inbox current:
 */5 * * * * cd /path/to/all_chat && .venv/bin/python manage.py fetch_all --quiet >> /var/log/all_chat.log 2>&1
 ```
 
-`fetch_all` runs one pass over every configured channel; `--quiet` only prints when something was fetched or an error occurred. Channels are isolated — a Gmail outage never blocks Messenger fetching:
+`fetch_all` runs one pass over every configured channel; `--quiet` only prints when something was fetched or an error occurred. Channels are isolated — a Gmail outage never blocks Messenger fetching. WhatsApp is not polled: it arrives only via the webhook (Step 3b).
 
 ```mermaid
 flowchart TD
@@ -304,8 +391,10 @@ stateDiagram-v2
 | `/` | Redirects to the Messenger channel |
 | `/channel/email/` | Gmail conversations |
 | `/channel/messenger/` | Messenger conversations |
+| `/channel/whatsapp/` | WhatsApp conversations |
 | `/channel/<channel>/<contact>/` | One thread, with the reply bar |
 | `/messenger/webhook/` | Meta-only endpoint |
+| `/whatsapp/webhook/` | Meta-only endpoint |
 
 Replies: email goes out via SMTP (`smtp.gmail.com:465`), Messenger via the Graph API Send API. Outgoing messages are stored locally too, so threads show both sides. Opening a thread marks its incoming messages as read.
 
@@ -321,6 +410,8 @@ sequenceDiagram
         App->>Gmail: send via SMTP (In-Reply-To last inbound)
     else channel = messenger
         App->>Page: POST /{page-id}/messages (recipient PSID)
+    else channel = whatsapp
+        App->>WhatsApp: POST /{phone-number-id}/messages (wa_id, 24h window)
     end
     App->>App: store outgoing message
     App-->>Browser: redirect to thread
@@ -335,6 +426,10 @@ sequenceDiagram
 | `Messenger is not configured` | `META_PAGE_ID` / `META_PAGE_ACCESS_TOKEN` missing (env or `messenger_server_config.json`) |
 | Webhook verification fails (403) | `META_VERIFY_TOKEN` in Meta dashboard must exactly match the configured value |
 | Webhook POSTs rejected (403) | `META_APP_SECRET` mismatch — signature check fails |
+| WhatsApp webhook verification fails (403) | `WHATSAPP_VERIFY_TOKEN` in Meta dashboard must exactly match the configured value |
+| WhatsApp webhook POSTs rejected (403) | `WHATSAPP_APP_SECRET` mismatch — signature check fails |
+| WhatsApp replies fail with `(131047)` or `re-engagement message` | Recipient hasn't messaged you in 24h — outside the customer service window; send an approved template via the Meta dashboard instead |
+| WhatsApp replies fail with `(#131030)` | Recipient isn't in the Cloud API test-number allowlist (up to 5 recipients during testing) |
 | No summaries appear | Ollama not running or `llama3.2:3b` not pulled — run `ollama list` |
 | Duplicate-looking messages | None are stored twice: unique constraint on `(channel, user_email, message_id)` |
 | `FETCH_INTERVAL_SECONDS must be an integer` | Set a number of seconds, e.g. `FETCH_INTERVAL_SECONDS=60` |

@@ -5,3 +5,4 @@ db.sqlite3
 .DS_Store
 .env
 messenger_server_config.json
+whatsapp_server_config.json

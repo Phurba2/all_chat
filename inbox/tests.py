@@ -3,12 +3,13 @@ import hmac
 import json
 import shutil
 import tempfile
+from datetime import datetime, timezone as dt_timezone
 from pathlib import Path
 from unittest import mock
 
 from django.test import TestCase
 
-from . import gmail, messenger
+from . import gmail, messenger, whatsapp
 from .models import Message
 
 
@@ -17,10 +18,13 @@ class ServerConfigSandboxMixin:
         super().setUp()
         self._config_tmpdir = Path(tempfile.mkdtemp(prefix="msgr-cfg-"))
         self._real_config_path = messenger.CONFIG_PATH
+        self._real_whatsapp_config_path = whatsapp.CONFIG_PATH
         messenger.CONFIG_PATH = self._config_tmpdir / "config.json"
+        whatsapp.CONFIG_PATH = self._config_tmpdir / "whatsapp-config.json"
 
     def tearDown(self):
         messenger.CONFIG_PATH = self._real_config_path
+        whatsapp.CONFIG_PATH = self._real_whatsapp_config_path
         shutil.rmtree(self._config_tmpdir, ignore_errors=True)
         super().tearDown()
 
@@ -241,7 +245,7 @@ class MessengerWebhookServerConfigTests(ServerConfigSandboxMixin, TestCase):
             resp = self.client.post(self.URL, data=payload, content_type="application/json",
                                     HTTP_X_HUB_SIGNATURE_256=expected)
         self.assertEqual(resp.status_code, 200)
-        msg = Message.objects.get()
+        msg = Message.objects.filter(direction="in").get()
         self.assertEqual(msg.text, "signed hello")
         self.assertEqual(msg.user_email, "123")
 
@@ -489,3 +493,363 @@ class GmailFetchTests(TestCase):
         msg = sent.call_args.args[0]
         self.assertEqual(msg["To"], "pat@x")
         self.assertEqual(msg["In-Reply-To"], "<m1@x>")
+
+
+class WhatsAppApiTests(ServerConfigSandboxMixin, TestCase):
+
+    @mock.patch("inbox.whatsapp.requests.post")
+    def test_send_message_posts_to_cloud_api(self, mock_post):
+        mock_post.return_value.json.return_value = {"messages": [{"id": "wamid.1"}]}
+        with mock.patch("inbox.whatsapp.PHONE_NUMBER_ID", "106540352242922"), \
+             mock.patch("inbox.whatsapp.ACCESS_TOKEN", "tok"):
+            result = whatsapp.send_message("16505551234", "Hello")
+
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], "https://graph.facebook.com/v26.0/106540352242922/messages")
+        self.assertEqual(kwargs["json"], {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": "16505551234",
+            "type": "text",
+            "text": {"body": "Hello"},
+        })
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer tok")
+        self.assertEqual(result, {"messages": [{"id": "wamid.1"}]})
+
+    @mock.patch("inbox.whatsapp.requests.post")
+    def test_send_message_raises_when_not_configured(self, mock_post):
+        with mock.patch("inbox.whatsapp.PHONE_NUMBER_ID", None), \
+             mock.patch("inbox.whatsapp.ACCESS_TOKEN", None), \
+             mock.patch("inbox.whatsapp.GRAPH_VERSION", ""):
+            with self.assertRaises(RuntimeError):
+                whatsapp.send_message("16505551234", "Hello")
+        mock_post.assert_not_called()
+
+    def test_send_message_prefers_server_config_file(self):
+        whatsapp.save_server_config(phone_number_id="cfg-phone", access_token="cfg-tok")
+        with mock.patch("inbox.whatsapp.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {"messages": [{"id": "wamid.1"}]}
+            whatsapp.send_message("16505551234", "Hello")
+
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], "https://graph.facebook.com/v26.0/cfg-phone/messages")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer cfg-tok")
+
+    def test_is_configured_false_without_config(self):
+        with mock.patch("inbox.whatsapp.PHONE_NUMBER_ID", None), \
+             mock.patch("inbox.whatsapp.ACCESS_TOKEN", None):
+            self.assertFalse(whatsapp.is_configured())
+
+
+class WhatsAppWebhookTests(ServerConfigSandboxMixin, TestCase):
+    URL = "/whatsapp/webhook/"
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch("inbox.views.whatsapp.send_message")
+        self.mock_send = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_get_verification_with_wrong_token(self):
+        with mock.patch("inbox.whatsapp.APP_SECRET", None), \
+             mock.patch("inbox.whatsapp.VERIFY_TOKEN", "env-verify"):
+            resp = self.client.get(self.URL, {
+                "hub.mode": "subscribe",
+                "hub.verify_token": "wrong",
+                "hub.challenge": "challenge-123",
+            })
+        self.assertEqual(resp.status_code, 403)
+
+    def test_get_verification_with_correct_token(self):
+        with mock.patch("inbox.whatsapp.APP_SECRET", None), \
+             mock.patch("inbox.whatsapp.VERIFY_TOKEN", "secret-token"):
+            resp = self.client.get(self.URL, {
+                "hub.mode": "subscribe",
+                "hub.verify_token": "secret-token",
+                "hub.challenge": "challenge-123",
+            })
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content.decode(), "challenge-123")
+
+    def test_unsupported_method(self):
+        resp = self.client.put(self.URL)
+        self.assertEqual(resp.status_code, 405)
+
+    def test_post_saves_incoming_message(self):
+        payload = {
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "102290129340398",
+                "changes": [{
+                    "field": "messages",
+                    "value": {
+                        "messaging_product": "whatsapp",
+                        "metadata": {
+                            "display_phone_number": "15550783881",
+                            "phone_number_id": "106540352242922",
+                        },
+                        "contacts": [{
+                            "profile": {"name": "Sheena Nelson"},
+                            "wa_id": "16505551234",
+                        }],
+                        "messages": [{
+                            "from": "16505551234",
+                            "id": "wamid.abc",
+                            "timestamp": "1749416383",
+                            "type": "text",
+                            "text": {"body": "Does it come in another color?"},
+                        }],
+                    },
+                }],
+            }],
+        }
+        with mock.patch("inbox.whatsapp.APP_SECRET", None):
+            resp = self.client.post(self.URL, data=json.dumps(payload),
+                                    content_type="application/json")
+
+        self.assertEqual(resp.status_code, 200)
+        msg = Message.objects.filter(direction="in").get()
+        self.assertEqual(msg.channel, "whatsapp")
+        self.assertEqual(msg.contact, "Sheena Nelson")
+        self.assertEqual(msg.contact_id, "16505551234")
+        self.assertEqual(msg.direction, "in")
+        self.assertEqual(msg.text, "Does it come in another color?")
+        self.assertEqual(msg.message_id, "wamid.abc")
+        self.assertEqual(msg.user_email, "106540352242922")
+        self.assertEqual(
+            msg.created_at,
+            datetime(2025, 6, 8, 20, 59, 43, tzinfo=dt_timezone.utc),
+        )
+        self.assertEqual(msg.summary, "")
+
+    def test_post_ignores_statuses_and_non_text_messages(self):
+        payload = {
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "102290129340398",
+                "changes": [{
+                    "field": "messages",
+                    "value": {
+                        "metadata": {"phone_number_id": "106540352242922"},
+                        "statuses": [{
+                            "id": "wamid.status",
+                            "status": "delivered",
+                            "recipient_id": "16505551234",
+                        }],
+                        "messages": [{
+                            "from": "16505551234",
+                            "id": "wamid.img",
+                            "timestamp": "1749416383",
+                            "type": "image",
+                            "image": {"id": "asset-1"},
+                        }],
+                    },
+                }],
+            }],
+        }
+        with mock.patch("inbox.whatsapp.APP_SECRET", None):
+            resp = self.client.post(self.URL, data=json.dumps(payload),
+                                    content_type="application/json")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Message.objects.count(), 0)
+
+    def test_post_skips_duplicate_message_id(self):
+        Message.objects.create(channel="whatsapp", contact="Sheena", direction="in",
+                               text="Hello", message_id="wamid.abc",
+                               user_email="106540352242922")
+        payload = {
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "102290129340398",
+                "changes": [{
+                    "field": "messages",
+                    "value": {
+                        "metadata": {"phone_number_id": "106540352242922"},
+                        "messages": [{
+                            "from": "16505551234",
+                            "id": "wamid.abc",
+                            "timestamp": "1749416383",
+                            "type": "text",
+                            "text": {"body": "Hello"},
+                        }],
+                    },
+                }],
+            }],
+        }
+        with mock.patch("inbox.whatsapp.APP_SECRET", None):
+            self.client.post(self.URL, data=json.dumps(payload),
+                             content_type="application/json")
+
+        self.assertEqual(Message.objects.count(), 1)
+
+    def test_post_invalid_json(self):
+        with mock.patch("inbox.whatsapp.APP_SECRET", None):
+            resp = self.client.post(self.URL, data="not json", content_type="application/json")
+        self.assertEqual(resp.status_code, 400)
+
+
+class WhatsAppWebhookServerConfigTests(ServerConfigSandboxMixin, TestCase):
+    URL = "/whatsapp/webhook/"
+
+    def setUp(self):
+        super().setUp()
+        whatsapp.save_server_config(app_secret="cfg-secret", verify_token="cfg-verify")
+        patcher = mock.patch("inbox.views.whatsapp.send_message")
+        self.mock_send = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_get_verification_uses_saved_verify_token(self):
+        resp = self.client.get(self.URL, {
+            "hub.mode": "subscribe",
+            "hub.verify_token": "cfg-verify",
+            "hub.challenge": "challenge-123",
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content.decode(), "challenge-123")
+
+    def test_get_verification_rejects_wrong_token(self):
+        resp = self.client.get(self.URL, {
+            "hub.mode": "subscribe",
+            "hub.verify_token": "wrong",
+            "hub.challenge": "challenge-123",
+        })
+        self.assertEqual(resp.status_code, 403)
+
+    def test_post_without_signature_is_rejected(self):
+        resp = self.client.post(self.URL, data=json.dumps({"entry": []}),
+                                content_type="application/json")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_post_with_valid_signature_processes_payload(self):
+        payload = json.dumps({
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "102290129340398",
+                "changes": [{
+                    "field": "messages",
+                    "value": {
+                        "metadata": {"phone_number_id": "106540352242922"},
+                        "messages": [{
+                            "from": "16505551234",
+                            "id": "wamid.sig",
+                            "timestamp": "1749416383",
+                            "type": "text",
+                            "text": {"body": "signed hello"},
+                        }],
+                    },
+                }],
+            }],
+        })
+        expected = "sha256=" + hmac.new(
+            b"cfg-secret", payload.encode(), hashlib.sha256
+        ).hexdigest()
+        resp = self.client.post(self.URL, data=payload, content_type="application/json",
+                                HTTP_X_HUB_SIGNATURE_256=expected)
+        self.assertEqual(resp.status_code, 200)
+        msg = Message.objects.filter(direction="in").get()
+        self.assertEqual(msg.text, "signed hello")
+        self.assertEqual(msg.user_email, "106540352242922")
+
+
+class WhatsAppAutoReplyTests(ServerConfigSandboxMixin, TestCase):
+    URL = "/whatsapp/webhook/"
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch("inbox.whatsapp.APP_SECRET", None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def post_message(self, text, mid="wamid.reply"):
+        payload = {
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "102290129340398",
+                "changes": [{
+                    "field": "messages",
+                    "value": {
+                        "metadata": {"phone_number_id": "106540352242922"},
+                        "contacts": [{"profile": {"name": "Sheena"}, "wa_id": "16505551234"}],
+                        "messages": [{
+                            "from": "16505551234",
+                            "id": mid,
+                            "timestamp": "1749416383",
+                            "type": "text",
+                            "text": {"body": text},
+                        }],
+                    },
+                }],
+            }],
+        }
+        return self.client.post(self.URL, data=json.dumps(payload),
+                                content_type="application/json")
+
+    @mock.patch("inbox.views.whatsapp.send_message")
+    def test_greeting_gets_auto_reply(self, mock_send):
+        mock_send.return_value = {"messages": [{"id": "wamid.out1"}]}
+        resp = self.post_message("hi")
+
+        self.assertEqual(resp.status_code, 200)
+        mock_send.assert_called_once_with("16505551234", mock.ANY)
+        reply_text = mock_send.call_args[0][1]
+        self.assertIn("Hello!", reply_text)
+        out = Message.objects.filter(direction="out").get()
+        self.assertEqual(out.text, reply_text)
+        self.assertEqual(out.message_id, "wamid.out1")
+        self.assertEqual(out.contact_id, "16505551234")
+
+    @mock.patch("inbox.views.whatsapp.send_message")
+    def test_unknown_text_gets_fallback_reply(self, mock_send):
+        mock_send.return_value = {}
+        self.post_message("what is your refund policy", mid="wamid.x2")
+
+        reply_text = mock_send.call_args[0][1]
+        self.assertIn("Thanks for your message", reply_text)
+        self.assertTrue(Message.objects.filter(direction="out").exists())
+
+    @mock.patch("inbox.views.whatsapp.send_message")
+    def test_reply_failure_does_not_crash_webhook(self, mock_send):
+        mock_send.side_effect = RuntimeError("Cloud API error")
+        resp = self.post_message("ping", mid="wamid.x3")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(Message.objects.filter(direction="in").exists())
+        self.assertFalse(Message.objects.filter(direction="out").exists())
+
+
+class WhatsAppConversationViewTests(ServerConfigSandboxMixin, TestCase):
+
+    @mock.patch("inbox.views.whatsapp.send_message")
+    def test_reply_sends_and_stores_outgoing(self, mock_send):
+        Message.objects.create(channel="whatsapp", contact="Sheena", direction="in",
+                               text="Hello", contact_id="16505551234",
+                               user_email="106540352242922")
+        mock_send.return_value = {"messages": [{"id": "wamid.sent"}]}
+
+        resp = self.client.post("/channel/whatsapp/Sheena/", {"text": "Hello back"})
+
+        self.assertRedirects(resp, "/channel/whatsapp/Sheena/")
+        mock_send.assert_called_once_with("16505551234", "Hello back")
+        out = Message.objects.filter(direction="out").get()
+        self.assertEqual(out.text, "Hello back")
+        self.assertEqual(out.message_id, "wamid.sent")
+        self.assertEqual(out.contact_id, "16505551234")
+
+    @mock.patch("inbox.views.whatsapp.send_message", side_effect=RuntimeError("API down"))
+    def test_reply_stored_locally_when_send_fails(self, mock_send):
+        Message.objects.create(channel="whatsapp", contact="Sheena", direction="in",
+                               text="Hello", contact_id="16505551234",
+                               user_email="106540352242922")
+
+        resp = self.client.post("/channel/whatsapp/Sheena/", {"text": "Hello back"})
+
+        self.assertRedirects(resp, "/channel/whatsapp/Sheena/")
+        self.assertEqual(Message.objects.filter(direction="out").count(), 1)
+
+    def test_thread_marks_messages_read_on_open(self):
+        Message.objects.create(channel="whatsapp", contact="Sheena", direction="in",
+                               text="Hello", is_read=False, user_email="106540352242922")
+        self.client.get("/channel/whatsapp/Sheena/")
+        self.assertTrue(Message.objects.get().is_read)

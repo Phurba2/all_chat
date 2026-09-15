@@ -2,6 +2,8 @@
 
 A minimal Django app that pulls Gmail and Facebook Messenger messages into a single dashboard.
 
+WhatsApp is supported through the WhatsApp Cloud API (webhook receive + Cloud API send).
+
 > 📖 Full step-by-step setup instructions (Gmail app passwords, Meta app, webhook, automation) are in **[setup.md](setup.md)**.
 
 ## Quickstart
@@ -38,6 +40,18 @@ export META_GRAPH_VERSION=v26.0
 
 Messenger credentials can also be stored in a gitignored `messenger_server_config.json` (saved values take precedence over env vars).
 
+WhatsApp Cloud API:
+
+```bash
+export WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
+export WHATSAPP_ACCESS_TOKEN=your-access-token
+export WHATSAPP_APP_SECRET=your-app-secret
+export WHATSAPP_VERIFY_TOKEN=something-you-create
+export WHATSAPP_GRAPH_VERSION=v26.0
+```
+
+WhatsApp credentials can also be stored in a gitignored `whatsapp_server_config.json` (saved values take precedence over env vars).
+
 ## Fetching Messages
 
 ### Automated
@@ -62,17 +76,18 @@ Or a long-running poller, no cron needed:
 .venv/bin/python manage.py run_scheduler --interval 30   # override per-run
 ```
 
-Run it under a process manager (systemd, supervisord, tmux) in production. Individual channels can also be fetched with `fetch_gmail` and `fetch_messenger`.
+Run it under a process manager (systemd, supervisord, tmux) in production. Individual channels can also be fetched with `fetch_gmail` and `fetch_messenger`. WhatsApp is webhook-only (Cloud API has no history backfill), so the webhook below is its only receive path.
 
-### Real-time (Messenger)
+### Real-time (Messenger + WhatsApp)
 
-Meta delivers incoming Messenger messages to the webhook (needs to be publicly reachable over HTTPS):
+Meta delivers incoming Messenger and WhatsApp messages to the webhooks (each needs to be publicly reachable over HTTPS):
 
 ```text
 https://your-domain.com/messenger/webhook/
+https://your-domain.com/whatsapp/webhook/
 ```
 
-Register that URL with the `verify_token` above in your Meta app's Messenger webhook settings.
+Register those URLs with the matching `verify_token` above in your Meta app's Messenger / WhatsApp webhook settings.
 
 ## Replying
 
