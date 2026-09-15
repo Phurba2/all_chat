@@ -7,7 +7,6 @@ Summarize this email in 2-3 short sentences.
 
 Output ONLY the summary.
 Do not explain your reasoning.
-Do not analyze the email.
 
 Email:
 {message_text}

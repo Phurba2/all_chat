@@ -218,7 +218,7 @@ class Message(models.Model):
 ### 2. Messenger Integration
 - ✅ Browser-based Page ID + Token setup (`/setup/messenger/`)
 - ✅ Webhook support for real-time message delivery
-- ✅ Meta Graph API integration (v21.0)
+- ✅ Meta Graph API integration (v26.0)
 - ✅ Server-side webhook configuration
 - ✅ Message backfill support (`fetch_messenger`)
 - ✅ Reply functionality via Graph API Send API
@@ -335,7 +335,7 @@ GMAIL_APP_PASSWORD=your-app-password
 ```bash
 META_APP_SECRET=your-app-secret
 META_VERIFY_TOKEN=your-verify-token
-META_GRAPH_VERSION=v21.0
+META_GRAPH_VERSION=v26.0
 META_PAGE_ID=your-page-id
 META_PAGE_ACCESS_TOKEN=your-page-access-token
 ```

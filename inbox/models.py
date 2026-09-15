@@ -11,7 +11,6 @@ class Message(models.Model):
     ]
     DIRECTIONS = [("in", "Incoming"), ("out", "Outgoing")]
 
-    # Stores the Gmail address or Messenger Page ID owning this message.
     user_email = models.CharField(max_length=320, default="", blank=True)
     channel = models.CharField(max_length=20, choices=CHANNELS)
     contact = models.CharField(max_length=320)
@@ -26,11 +25,6 @@ class Message(models.Model):
 
     class Meta:
         ordering = ["created_at", "pk"]
-        indexes = [
-            models.Index(fields=["user_email", "channel", "contact"], name="inbox_messa_user_em_7c6a2b_idx"),
-            models.Index(fields=["channel", "message_id"], name="inbox_messa_channel_0d3b4f_idx"),
-            models.Index(fields=["created_at"], name="inbox_messa_created_9f2d6e_idx"),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["channel", "user_email", "message_id"],

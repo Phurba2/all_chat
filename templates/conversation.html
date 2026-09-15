@@ -127,7 +127,7 @@
 
 <!-- header -->
 <div class="chat-header">
-  <a href="{% url 'inbox' %}" title="Back">&#8592;</a>
+  <a href="{% url 'channel' channel %}" title="Back">&#8592;</a>
   <div>
     <div class="title">{{ contact }}</div>
     <div class="subtitle">{{ channel_name }}</div>
@@ -152,9 +152,13 @@
   <div class="bubble-row {{ m.direction }}">
     <div class="bubble">
       {% if m.subject %}<span class="subject">{{ m.subject }}</span>{% endif %}
-      {{ m.text|linebreaksbr }}
-      {% if m.summary and channel != "messenger" %}
-        <span class="summary">✨ {{ m.summary }}</span>
+      {% if channel == "email" and m.summary %}
+        <span class="summary">{{ m.summary }}</span>
+      {% else %}
+        {{ m.text|linebreaksbr }}
+        {% if m.summary and channel != "messenger" %}
+          <span class="summary">{{ m.summary }}</span>
+        {% endif %}
       {% endif %}
     </div>
     <span class="meta">{{ m.created_at|date:"H:i" }}</span>

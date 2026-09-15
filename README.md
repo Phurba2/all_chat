@@ -1,6 +1,8 @@
 # Unified Inbox
 
-A minimal Django app that pulls messages from WhatsApp, Messenger, and Gmail into a single dashboard.
+A minimal Django app that pulls Gmail and Facebook Messenger messages into a single dashboard.
+
+> 📖 Full step-by-step setup instructions (Gmail app passwords, Meta app, webhook, automation) are in **[setup.md](setup.md)**.
 
 ## Quickstart
 
@@ -13,63 +15,76 @@ python3 -m venv .venv
 
 Open http://127.0.0.1:8000
 
-## Gmail Setup
+## Configuration
 
-Gmail can be connected per-user from the browser at `/setup/` (email + app password), or configured server-side via environment variables:
+All credentials are configured server-side via environment variables (or a `.env` file — loaded automatically).
+
+Gmail (requires an app password):
 
 ```bash
 export GMAIL_EMAIL=you@gmail.com
 export GMAIL_APP_PASSWORD=your-app-password
-.venv/bin/python manage.py fetch_gmail
 ```
 
-## Messenger Setup
-
-Messenger can be connected from the browser at `/setup/messenger/` (Page ID + Page Access Token), just like Gmail. Credentials are stored in the browser session, and on connect the app backfills recent conversations via the Graph API.
-
-The same page also collects the **App Secret** and **Verify Token**. These are saved server-side (to a gitignored `messenger_server_config.json`) because Meta calls the webhook without a browser session — session storage wouldn't work for them. They can alternatively be set via environment variables:
-
-```bash
-export META_APP_SECRET=your-app-secret
-export META_VERIFY_TOKEN=something-you-create
-export META_GRAPH_VERSION=v21.0
-```
-
-For real-time message delivery, the webhook must be configured server-side. Server config saved from the setup page takes precedence over these environment variables (add them to your `.env` if you prefer):
+Messenger:
 
 ```bash
 export META_PAGE_ID=your-page-id
 export META_PAGE_ACCESS_TOKEN=your-page-access-token
 export META_APP_SECRET=your-app-secret
 export META_VERIFY_TOKEN=something-you-create
-export META_GRAPH_VERSION=v21.0
+export META_GRAPH_VERSION=v26.0
 ```
 
-Meta sends incoming messages to the webhook URL (needs to be publicly reachable over HTTPS):
+Messenger credentials can also be stored in a gitignored `messenger_server_config.json` (saved values take precedence over env vars).
+
+## Fetching Messages
+
+### Automated
+
+One pass over all configured channels — safe to run repeatedly, duplicates are skipped:
+
+```bash
+.venv/bin/python manage.py fetch_all
+.venv/bin/python manage.py fetch_all --quiet
+```
+
+Cron example:
+
+```bash
+*/5 * * * * cd /path/to/unified-inbox && .venv/bin/python manage.py fetch_all --quiet
+```
+
+Or a long-running poller, no cron needed:
+
+```bash
+.venv/bin/python manage.py run_scheduler                 # every FETCH_INTERVAL_SECONDS (default 60)
+.venv/bin/python manage.py run_scheduler --interval 30   # override per-run
+```
+
+Run it under a process manager (systemd, supervisord, tmux) in production. Individual channels can also be fetched with `fetch_gmail` and `fetch_messenger`.
+
+### Real-time (Messenger)
+
+Meta delivers incoming Messenger messages to the webhook (needs to be publicly reachable over HTTPS):
 
 ```text
 https://your-domain.com/messenger/webhook/
 ```
 
-Register that URL with the `verify_token` above in your Meta app's Messenger webhook settings. Outgoing replies are sent with the Page Access Token via the Graph API Send API.
+Register that URL with the `verify_token` above in your Meta app's Messenger webhook settings.
 
-To catch up on messages delivered while the webhook was down or not yet subscribed, backfill from the Graph API (the token needs `pages_messaging` permission to read conversations):
+## Replying
 
-```bash
-.venv/bin/python manage.py fetch_messenger
-```
-
-Running it repeatedly is safe — messages already in the database are skipped.
-
-> Messenger works like Gmail: each browser connects the Page it wants to use, and
-> messages are stored under that Page, so each connected Page only sees its own
-> conversations. Env vars configure the server-side webhook only; they do not
-> unlock the Messenger channel in the browser.
+Open a conversation at `/channel/<channel>/<contact>/` and use the reply bar. Email replies go via SMTP, Messenger replies via the Graph API Send API.
 
 ## Project Structure
 
 - `inbox/models.py` — Message model
-- `inbox/views.py` — Conversation list & thread views
+- `inbox/views.py` — Conversation list & thread views, Messenger webhook
+- `inbox/gmail.py` — IMAP fetch and SMTP reply
+- `inbox/messenger.py` — Graph API fetch, send, webhook verification
+- `inbox/scheduler.py` — Server-side automated fetch cycle
 - `templates/` — HTML templates
 
 ## License
